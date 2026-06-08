@@ -75,6 +75,7 @@ export const timelineTypeMap: Record<string, string> = {
   assign: '派单',
   transfer: '转办',
   process: '办理反馈',
+  reply: '办理回复',
   return: '退回重办',
   delay: '延期申请',
   delay_approve: '延期通过',

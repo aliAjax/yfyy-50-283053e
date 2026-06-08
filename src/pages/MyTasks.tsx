@@ -5,12 +5,12 @@ import { useNavigate } from 'react-router-dom';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { useAppStore } from '@/store/appStore';
-import type { Complaint } from '@/types';
+import type { Complaint, ExtensionRequest } from '@/types';
 import { StatusTag, SourceTag } from '@/components/StatusTags';
 
 const MyTasks: React.FC = () => {
   const navigate = useNavigate();
-  const { complaints, updateComplaint, addTimeline } = useAppStore();
+  const { complaints, updateComplaint, addTimeline, addExtensionRequest } = useAppStore();
   const [activeTab, setActiveTab] = useState('pending');
   const [processModalVisible, setProcessModalVisible] = useState(false);
   const [delayModalVisible, setDelayModalVisible] = useState(false);
@@ -165,7 +165,7 @@ const MyTasks: React.FC = () => {
     addTimeline(selectedComplaint.id, {
       id: `${selectedComplaint.id}-process-${Date.now()}`,
       complaintId: selectedComplaint.id,
-      type: 'process',
+      type: 'reply',
       operator: '责任单位经办人',
       content: values.content,
       createdAt: now,
@@ -179,6 +179,7 @@ const MyTasks: React.FC = () => {
   const handleDelay = (values: { days: number; reason: string }) => {
     if (!selectedComplaint) return;
     const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    const requestId = `EXT-${selectedComplaint.id}-${Date.now()}`;
     addTimeline(selectedComplaint.id, {
       id: `${selectedComplaint.id}-delay-${Date.now()}`,
       complaintId: selectedComplaint.id,
@@ -187,6 +188,17 @@ const MyTasks: React.FC = () => {
       content: `申请延期 ${values.days} 天，原因：${values.reason}`,
       createdAt: now,
     });
+    const request: ExtensionRequest = {
+      id: requestId,
+      complaintId: selectedComplaint.id,
+      complaintTitle: selectedComplaint.title,
+      departmentName: selectedComplaint.departmentName,
+      days: values.days,
+      reason: values.reason,
+      status: 'pending',
+      createdAt: now,
+    };
+    addExtensionRequest(request);
     message.success('延期申请已提交，等待审批');
     setDelayModalVisible(false);
     form.resetFields();

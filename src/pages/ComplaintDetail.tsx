@@ -30,6 +30,7 @@ import {
 import { useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { useAppStore } from '@/store/appStore';
+import type { ExtensionRequest } from '@/types';
 import { StatusTag, SourceTag, SatisfactionTag } from '@/components/StatusTags';
 import ComplaintTimeline from '@/components/ComplaintTimeline';
 import { departments } from '@/data/dictionaries';
@@ -37,7 +38,7 @@ import { departments } from '@/data/dictionaries';
 const ComplaintDetail: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
-  const { getComplaintById, updateComplaint, addTimeline } = useAppStore();
+  const { getComplaintById, updateComplaint, addTimeline, addExtensionRequest } = useAppStore();
   const complaint = getComplaintById(id || '');
 
   const [transferModalVisible, setTransferModalVisible] = useState(false);
@@ -97,6 +98,7 @@ const ComplaintDetail: React.FC = () => {
 
   const handleDelay = (values: { days: number; reason: string }) => {
     const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    const requestId = `EXT-${id}-${Date.now()}`;
     addTimeline(id!, {
       id: `${id}-delay-${Date.now()}`,
       complaintId: id!,
@@ -105,7 +107,18 @@ const ComplaintDetail: React.FC = () => {
       content: `申请延期 ${values.days} 天，原因：${values.reason}`,
       createdAt: now,
     });
-    message.success('延期申请已提交');
+    const request: ExtensionRequest = {
+      id: requestId,
+      complaintId: id!,
+      complaintTitle: complaint.title,
+      departmentName: complaint.departmentName,
+      days: values.days,
+      reason: values.reason,
+      status: 'pending',
+      createdAt: now,
+    };
+    addExtensionRequest(request);
+    message.success('延期申请已提交，等待审批');
     setDelayModalVisible(false);
     form.resetFields();
   };
@@ -163,7 +176,7 @@ const ComplaintDetail: React.FC = () => {
     addTimeline(id!, {
       id: `${id}-process-${Date.now()}`,
       complaintId: id!,
-      type: 'process',
+      type: 'reply',
       operator: '责任单位',
       content: values.content,
       createdAt: now,

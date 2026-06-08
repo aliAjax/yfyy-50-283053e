@@ -14,6 +14,7 @@ export type TimelineType =
   | 'assign'
   | 'transfer'
   | 'process'
+  | 'reply'
   | 'return'
   | 'delay'
   | 'delay_approve'

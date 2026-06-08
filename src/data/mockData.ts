@@ -93,7 +93,7 @@ const generateTimelines = (
     timelines.push({
       id: `${complaintId}-t4`,
       complaintId,
-      type: 'process',
+      type: 'reply',
       operator: Random.pick(departments).name + ' 王工',
       content: '已完成办理，提交办理结果',
       createdAt: currentTime.format('YYYY-MM-DD HH:mm:ss'),
@@ -114,7 +114,7 @@ const generateTimelines = (
     timelines.push({
       id: `${complaintId}-t6`,
       complaintId,
-      type: 'process',
+      type: 'reply',
       operator: Random.pick(departments).name + ' 赵工',
       content: '办理完成，已清理占道经营，依法处罚相关商户',
       createdAt: currentTime.format('YYYY-MM-DD HH:mm:ss'),
