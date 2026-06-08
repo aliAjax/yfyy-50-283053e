@@ -2,6 +2,7 @@ import { Badge, Layout, Menu, Avatar, Dropdown, theme } from 'antd';
 import {
   LayoutDashboard,
   FileText,
+  FileSpreadsheet,
   ListTodo,
   ClipboardCheck,
   BarChart3,
@@ -27,6 +28,11 @@ const menuItems = [
     label: '投诉管理',
   },
   {
+    key: '/batch-import',
+    icon: <FileSpreadsheet size={18} />,
+    label: '批量录入',
+  },
+  {
     key: '/my-tasks',
     icon: <ListTodo size={18} />,
     label: '待办事项',
@@ -46,6 +52,7 @@ const menuItems = [
 const titleMap: Record<string, string> = {
   '/dashboard': '数据驾驶舱',
   '/complaints': '投诉管理',
+  '/batch-import': '批量录入预览',
   '/my-tasks': '待办事项',
   '/supervision': '督办管理',
   '/statistics': '统计分析',

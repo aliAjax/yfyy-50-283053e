@@ -27,6 +27,10 @@ export interface PublicComplaintForm {
   content: string;
 }
 
+export interface BackendComplaintForm extends PublicComplaintForm {
+  departmentId: string;
+}
+
 interface AppState {
   user: User | null;
   complaints: Complaint[];
@@ -37,6 +41,7 @@ interface AppState {
   getComplaintById: (id: string) => Complaint | undefined;
   addComplaint: (complaint: Complaint) => void;
   submitPublicComplaint: (values: PublicComplaintForm) => Complaint;
+  submitBackendComplaint: (values: BackendComplaintForm) => Complaint;
   updateComplaint: (id: string, updates: Partial<Complaint>) => void;
   addTimeline: (complaintId: string, timeline: Complaint['timelines'][0]) => void;
   addExtensionRequest: (request: ExtensionRequest) => void;
@@ -132,6 +137,62 @@ export const useAppStore = create<AppState>((set, get) => ({
       areaName: area?.name || '',
       departmentId: department.id,
       departmentName: department.name,
+      createdAt: now.format('YYYY-MM-DD HH:mm:ss'),
+      deadline: now.add(5, 'day').format('YYYY-MM-DD HH:mm:ss'),
+      contactName: values.contactName,
+      contactPhone: values.contactPhone,
+      address: values.address,
+      isRepeat: false,
+      urgeCount: 0,
+      timelines: [acceptTimeline, assignTimeline],
+    };
+
+    get().addComplaint(newComplaint);
+    return newComplaint;
+  },
+
+  submitBackendComplaint: (values) => {
+    const { complaints } = get();
+    const now = dayjs();
+    const newId = `C${String(complaints.length + 1).padStart(5, '0')}`;
+
+    const category = categories.find((c) => c.id === values.categoryId);
+    const parentCategory = categories.find((c) => c.id === category?.parentId);
+    const area = areas.find((a) => a.id === values.areaId);
+    const department = departments.find((d) => d.id === values.departmentId);
+
+    const acceptTimeline: TimelineRecord = {
+      id: `${newId}-backend-accept`,
+      complaintId: newId,
+      type: 'accept',
+      operator: '后台录入',
+      content: '投诉已受理，等待派单',
+      createdAt: now.format('YYYY-MM-DD HH:mm:ss'),
+    };
+
+    const assignTimeline: TimelineRecord = {
+      id: `${newId}-backend-assign`,
+      complaintId: newId,
+      type: 'assign',
+      operator: '智能派单系统',
+      content: `根据区域和分类自动派单至${department?.name || '责任单位'}`,
+      createdAt: now.add(5, 'minute').format('YYYY-MM-DD HH:mm:ss'),
+    };
+
+    const newComplaint: Complaint = {
+      id: newId,
+      title: values.title,
+      content: values.content,
+      source: 'backend',
+      status: 'processing',
+      categoryId: values.categoryId,
+      categoryName: parentCategory
+        ? `${parentCategory.name} - ${category?.name || ''}`
+        : category?.name || '',
+      areaId: values.areaId,
+      areaName: area?.name || '',
+      departmentId: values.departmentId,
+      departmentName: department?.name || '',
       createdAt: now.format('YYYY-MM-DD HH:mm:ss'),
       deadline: now.add(5, 'day').format('YYYY-MM-DD HH:mm:ss'),
       contactName: values.contactName,

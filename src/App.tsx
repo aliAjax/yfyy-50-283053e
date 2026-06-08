@@ -6,6 +6,7 @@ import PublicSubmit from '@/pages/PublicSubmit';
 import Dashboard from '@/pages/Dashboard';
 import ComplaintList from '@/pages/ComplaintList';
 import ComplaintDetail from '@/pages/ComplaintDetail';
+import BatchImport from '@/pages/BatchImport';
 import MyTasks from '@/pages/MyTasks';
 import Supervision from '@/pages/Supervision';
 import Statistics from '@/pages/Statistics';
@@ -73,6 +74,16 @@ export default function App() {
               <ProtectedRoute>
                 <MainLayout>
                   <ComplaintList />
+                </MainLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/batch-import"
+            element={
+              <ProtectedRoute>
+                <MainLayout>
+                  <BatchImport />
                 </MainLayout>
               </ProtectedRoute>
             }
