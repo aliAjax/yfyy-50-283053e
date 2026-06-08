@@ -1,23 +1,30 @@
 import { useState } from 'react';
 import { Card, Tabs, Table, Button, Tag, Space, Modal, Form, Input, Select, message, Rate } from 'antd';
-import { ClipboardCheck, Clock, Bell, RotateCcw, Phone, CheckCircle2, XCircle } from 'lucide-react';
+import { ClipboardCheck, Clock, Bell, RotateCcw, Phone, CheckCircle2, XCircle, ThumbsUp, ThumbsDown } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { useAppStore } from '@/store/appStore';
-import type { Complaint } from '@/types';
+import type { Complaint, ExtensionRequest } from '@/types';
 import { StatusTag, SourceTag } from '@/components/StatusTags';
 
 const Supervision: React.FC = () => {
   const navigate = useNavigate();
-  const { complaints, updateComplaint, addTimeline } = useAppStore();
+  const { complaints, updateComplaint, addTimeline, extensionRequests, approveExtension, rejectExtension } = useAppStore();
   const [activeTab, setActiveTab] = useState('pending');
   const [returnModalVisible, setReturnModalVisible] = useState(false);
   const [urgeModalVisible, setUrgeModalVisible] = useState(false);
   const [reviewModalVisible, setReviewModalVisible] = useState(false);
   const [followupModalVisible, setFollowupModalVisible] = useState(false);
+  const [delayModalVisible, setDelayModalVisible] = useState(false);
   const [selectedComplaint, setSelectedComplaint] = useState<Complaint | null>(null);
-  const [form] = Form.useForm();
+  const [selectedExtension, setSelectedExtension] = useState<ExtensionRequest | null>(null);
+  const [delayAction, setDelayAction] = useState<'approve' | 'reject'>('approve');
+  const [returnForm] = Form.useForm();
+  const [urgeForm] = Form.useForm();
+  const [reviewForm] = Form.useForm();
+  const [followupForm] = Form.useForm();
+  const [delayForm] = Form.useForm();
 
   const pendingList = complaints.filter(
     (c) => c.status === 'processing' || c.status === 'pending_assign'
@@ -25,9 +32,7 @@ const Supervision: React.FC = () => {
 
   const reviewList = complaints.filter((c) => c.status === 'pending_review');
 
-  const delayList = complaints.filter(
-    (c) => c.status === 'processing' || c.status === 'returned'
-  );
+  const delayList = extensionRequests.filter((r) => r.status === 'pending');
 
   const completedList = complaints.filter((c) => c.status === 'completed');
 
@@ -230,7 +235,7 @@ const Supervision: React.FC = () => {
     setFollowupModalVisible(true);
   };
 
-  const handleReturn = (values: any) => {
+  const handleReturn = (values: { reason: string }) => {
     if (!selectedComplaint) return;
     const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
     addTimeline(selectedComplaint.id, {
@@ -244,10 +249,10 @@ const Supervision: React.FC = () => {
     updateComplaint(selectedComplaint.id, { status: 'returned' });
     message.success('已退回重办');
     setReturnModalVisible(false);
-    form.resetFields();
+    returnForm.resetFields();
   };
 
-  const handleUrge = (values: any) => {
+  const handleUrge = (values: { content?: string }) => {
     if (!selectedComplaint) return;
     const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
     addTimeline(selectedComplaint.id, {
@@ -263,10 +268,10 @@ const Supervision: React.FC = () => {
     });
     message.success('催办通知已发送');
     setUrgeModalVisible(false);
-    form.resetFields();
+    urgeForm.resetFields();
   };
 
-  const handleReview = (values: any) => {
+  const handleReview = (values: { pass: boolean; remark?: string }) => {
     if (!selectedComplaint) return;
     const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
     if (values.pass) {
@@ -295,16 +300,16 @@ const Supervision: React.FC = () => {
       handleReturn({ reason: values.remark || '办理不合格' });
     }
     setReviewModalVisible(false);
-    form.resetFields();
+    reviewForm.resetFields();
   };
 
-  const handleFollowup = (values: any) => {
+  const handleFollowup = (values: { satisfaction?: number; content?: string }) => {
     if (!selectedComplaint) return;
     const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
     addTimeline(selectedComplaint.id, {
       id: `${selectedComplaint.id}-followup-${Date.now()}`,
       complaintId: selectedComplaint.id,
-      type: 'process',
+      type: 'followup',
       operator: '督办员（回访）',
       content: `回访结果：${values.content || '回访完成'}，满意度：${values.satisfaction || 5}分`,
       createdAt: now,
@@ -316,8 +321,94 @@ const Supervision: React.FC = () => {
     }
     message.success('回访记录已保存');
     setFollowupModalVisible(false);
-    form.resetFields();
+    followupForm.resetFields();
   };
+
+  const openDelayModal = (record: ExtensionRequest, action: 'approve' | 'reject') => {
+    setSelectedExtension(record);
+    setDelayAction(action);
+    setDelayModalVisible(true);
+  };
+
+  const handleDelayApproval = (values: { remark?: string }) => {
+    if (!selectedExtension) return;
+
+    if (delayAction === 'approve') {
+      approveExtension(selectedExtension.id, '督办员', values.remark);
+      message.success('延期申请已通过');
+    } else {
+      rejectExtension(selectedExtension.id, '督办员', values.remark);
+      message.success('延期申请已驳回');
+    }
+
+    setDelayModalVisible(false);
+    delayForm.resetFields();
+  };
+
+  const delayColumns: ColumnsType<ExtensionRequest> = [
+    {
+      title: '申请编号',
+      dataIndex: 'id',
+      width: 110,
+    },
+    {
+      title: '投诉标题',
+      dataIndex: 'complaintTitle',
+      width: 200,
+      ellipsis: true,
+    },
+    {
+      title: '申请部门',
+      dataIndex: 'departmentName',
+      width: 150,
+    },
+    {
+      title: '申请延期',
+      dataIndex: 'days',
+      width: 100,
+      render: (days: number) => <Tag color="orange">{days} 天</Tag>,
+    },
+    {
+      title: '申请原因',
+      dataIndex: 'reason',
+      width: 250,
+      ellipsis: true,
+    },
+    {
+      title: '申请时间',
+      dataIndex: 'createdAt',
+      width: 160,
+      sorter: (a: ExtensionRequest, b: ExtensionRequest) =>
+        dayjs(a.createdAt).valueOf() - dayjs(b.createdAt).valueOf(),
+    },
+    {
+      title: '操作',
+      key: 'action',
+      width: 180,
+      fixed: 'right',
+      render: (_, record: ExtensionRequest) => (
+        <Space size="small">
+          <Button
+            type="link"
+            size="small"
+            icon={<ThumbsUp size={12} />}
+            onClick={() => openDelayModal(record, 'approve')}
+          >
+            通过
+          </Button>
+          <Button
+            type="link"
+            size="small"
+            danger
+            icon={<ThumbsDown size={12} />}
+            onClick={() => openDelayModal(record, 'reject')}
+          >
+            驳回
+          </Button>
+        </Space>
+      ),
+    },
+  ];
 
   const tabItems = [
     {
@@ -376,7 +467,7 @@ const Supervision: React.FC = () => {
       children: (
         <Table
           rowKey="id"
-          columns={getColumns('delay')}
+          columns={delayColumns}
           dataSource={delayList}
           scroll={{ x: 1300 }}
           pagination={{ pageSize: 10, showSizeChanger: true }}
@@ -421,7 +512,7 @@ const Supervision: React.FC = () => {
         footer={null}
         width={480}
       >
-        <Form form={form} layout="vertical" onFinish={handleReturn}>
+        <Form form={returnForm} layout="vertical" onFinish={handleReturn}>
           <Form.Item
             label="退回原因"
             name="reason"
@@ -447,7 +538,7 @@ const Supervision: React.FC = () => {
         footer={null}
         width={480}
       >
-        <Form form={form} layout="vertical" onFinish={handleUrge}>
+        <Form form={urgeForm} layout="vertical" onFinish={handleUrge}>
           <Form.Item label="催办内容" name="content">
             <Input.TextArea
               rows={3}
@@ -473,7 +564,7 @@ const Supervision: React.FC = () => {
         footer={null}
         width={520}
       >
-        <Form form={form} layout="vertical" onFinish={handleReview}>
+        <Form form={reviewForm} layout="vertical" onFinish={handleReview}>
           <Form.Item
             label="审核结果"
             name="pass"
@@ -515,7 +606,7 @@ const Supervision: React.FC = () => {
         footer={null}
         width={520}
       >
-        <Form form={form} layout="vertical" onFinish={handleFollowup}>
+        <Form form={followupForm} layout="vertical" onFinish={handleFollowup}>
           {selectedComplaint && (
             <div className="bg-gray-50 p-3 rounded-lg mb-4">
               <p className="text-sm text-gray-600">
@@ -538,6 +629,48 @@ const Supervision: React.FC = () => {
                 保存回访记录
               </Button>
               <Button onClick={() => setFollowupModalVisible(false)}>取消</Button>
+            </Space>
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title={delayAction === 'approve' ? '通过延期申请' : '驳回延期申请'}
+        open={delayModalVisible}
+        onCancel={() => setDelayModalVisible(false)}
+        footer={null}
+        width={480}
+      >
+        <Form form={delayForm} layout="vertical" onFinish={handleDelayApproval}>
+          {selectedExtension && (
+            <div className="bg-gray-50 p-3 rounded-lg mb-4">
+              <p className="text-sm text-gray-600">
+                投诉标题：<span className="text-gray-800">{selectedExtension.complaintTitle}</span>
+              </p>
+              <p className="text-sm text-gray-600 mt-1">
+                申请部门：<span className="text-gray-800">{selectedExtension.departmentName}</span>
+              </p>
+              <p className="text-sm text-gray-600 mt-1">
+                申请延期：<span className="text-gray-800">{selectedExtension.days} 天</span>
+              </p>
+              <p className="text-sm text-gray-600 mt-1">
+                申请原因：<span className="text-gray-800">{selectedExtension.reason}</span>
+              </p>
+            </div>
+          )}
+          <Form.Item label="审批意见" name="remark">
+            <Input.TextArea rows={3} placeholder="请输入审批意见" />
+          </Form.Item>
+          <Form.Item>
+            <Space>
+              <Button
+                type="primary"
+                danger={delayAction === 'reject'}
+                htmlType="submit"
+              >
+                {delayAction === 'approve' ? '确认通过' : '确认驳回'}
+              </Button>
+              <Button onClick={() => setDelayModalVisible(false)}>取消</Button>
             </Space>
           </Form.Item>
         </Form>

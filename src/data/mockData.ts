@@ -8,7 +8,7 @@ import type {
   DashboardStats,
   ComplaintSource,
   ComplaintStatus,
-  TimelineType,
+  ExtensionRequest,
 } from '@/types';
 import { categories, areas, departments } from './dictionaries';
 
@@ -293,4 +293,59 @@ export const generateDashboardStats = (complaints: Complaint[]): DashboardStats 
     areaRank,
     repeatTop,
   };
+};
+
+export const generateExtensionRequests = (complaints: Complaint[]): ExtensionRequest[] => {
+  const processingComplaints = complaints.filter(
+    (c) => c.status === 'processing' || c.status === 'returned'
+  );
+  const requests: ExtensionRequest[] = [];
+  const count = Math.min(8, Math.floor(processingComplaints.length * 0.4));
+
+  for (let i = 0; i < count; i++) {
+    const complaint = processingComplaints[i];
+    if (!complaint) continue;
+
+    const statuses: ('pending' | 'approved' | 'rejected')[] = ['pending', 'pending', 'approved', 'rejected'];
+    const status = statuses[Random.integer(0, 3)];
+    const days = [3, 5, 7, 10, 15][Random.integer(0, 4)];
+    const createdAt = dayjs(complaint.createdAt)
+      .add(Random.integer(1, 3), 'day')
+      .format('YYYY-MM-DD HH:mm:ss');
+
+    const request: ExtensionRequest = {
+      id: `EXT${String(i + 1).padStart(4, '0')}`,
+      complaintId: complaint.id,
+      complaintTitle: complaint.title,
+      departmentName: complaint.departmentName,
+      days,
+      reason: Random.pick([
+        '问题涉及多部门协调，需更多时间沟通',
+        '现场情况复杂，需进一步勘察核实',
+        '受天气影响，施工进度延迟',
+        '需上级部门审批，流程较长',
+        '当事人配合度低，需多次沟通',
+      ]),
+      status,
+      createdAt,
+    };
+
+    if (status !== 'pending') {
+      request.approvedAt = dayjs(createdAt)
+        .add(Random.integer(2, 12), 'hour')
+        .format('YYYY-MM-DD HH:mm:ss');
+      request.approver = '督办员 李督办';
+      request.approveRemark = Random.pick([
+        '同意延期，请尽快办理',
+        '情况属实，同意延期',
+        '请加快进度，下不为例',
+      ]);
+    }
+
+    requests.push(request);
+  }
+
+  return requests.sort((a, b) =>
+    dayjs(b.createdAt).valueOf() - dayjs(a.createdAt).valueOf()
+  );
 };

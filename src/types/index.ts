@@ -16,8 +16,11 @@ export type TimelineType =
   | 'process'
   | 'return'
   | 'delay'
+  | 'delay_approve'
+  | 'delay_reject'
   | 'urge'
   | 'review'
+  | 'followup'
   | 'complete';
 
 export interface Category {
@@ -95,4 +98,18 @@ export interface User {
   role: string;
   department?: string;
   avatar?: string;
+}
+
+export interface ExtensionRequest {
+  id: string;
+  complaintId: string;
+  complaintTitle: string;
+  departmentName: string;
+  days: number;
+  reason: string;
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: string;
+  approvedAt?: string;
+  approver?: string;
+  approveRemark?: string;
 }

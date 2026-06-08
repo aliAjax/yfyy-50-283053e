@@ -159,7 +159,7 @@ const MyTasks: React.FC = () => {
     setDelayModalVisible(true);
   };
 
-  const handleProcess = (values: any) => {
+  const handleProcess = (values: { content: string }) => {
     if (!selectedComplaint) return;
     const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
     addTimeline(selectedComplaint.id, {
@@ -176,7 +176,7 @@ const MyTasks: React.FC = () => {
     form.resetFields();
   };
 
-  const handleDelay = (values: any) => {
+  const handleDelay = (values: { days: number; reason: string }) => {
     if (!selectedComplaint) return;
     const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
     addTimeline(selectedComplaint.id, {

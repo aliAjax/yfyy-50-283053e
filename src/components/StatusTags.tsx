@@ -7,8 +7,9 @@ interface StatusTagProps {
 }
 
 export const StatusTag: React.FC<StatusTagProps> = ({ status }) => {
+  const color = statusColorMap[status] as string;
   return (
-    <Tag color={statusColorMap[status] as any}>
+    <Tag color={color}>
       {statusMap[status]}
     </Tag>
   );
@@ -42,8 +43,9 @@ export const SatisfactionTag: React.FC<SatisfactionTagProps> = ({ score }) => {
     1: 'error',
   };
   
+  const color = colorMap[score] || 'default';
   return (
-    <Tag color={colorMap[score] as any}>
+    <Tag color={color}>
       {'★'.repeat(score)}{'☆'.repeat(5 - score)}
     </Tag>
   );

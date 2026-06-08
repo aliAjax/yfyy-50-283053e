@@ -356,7 +356,7 @@ const Dashboard: React.FC = () => {
           >
             <List
               dataSource={dashboardStats.repeatTop}
-              renderItem={(item, index) => (
+              renderItem={(item) => (
                 <List.Item className="px-0 py-2">
                   <div className="w-full">
                     <div className="flex items-center justify-between mb-1">

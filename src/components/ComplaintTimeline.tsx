@@ -9,6 +9,9 @@ import {
   Bell,
   CheckCircle2,
   Archive,
+  ThumbsUp,
+  ThumbsDown,
+  Phone,
 } from 'lucide-react';
 import type { TimelineRecord, TimelineType } from '@/types';
 import { timelineTypeMap } from '@/data/dictionaries';
@@ -20,8 +23,11 @@ const iconMap: Record<TimelineType, React.ReactNode> = {
   process: <MessageSquare size={16} />,
   return: <RotateCcw size={16} />,
   delay: <Clock size={16} />,
+  delay_approve: <ThumbsUp size={16} />,
+  delay_reject: <ThumbsDown size={16} />,
   urge: <Bell size={16} />,
   review: <CheckCircle2 size={16} />,
+  followup: <Phone size={16} />,
   complete: <Archive size={16} />,
 };
 
@@ -32,8 +38,11 @@ const colorMap: Record<TimelineType, string> = {
   process: '#52c41a',
   return: '#f5222d',
   delay: '#faad14',
+  delay_approve: '#52c41a',
+  delay_reject: '#f5222d',
   urge: '#fa8c16',
   review: '#52c41a',
+  followup: '#13c2c2',
   complete: '#1890ff',
 };
 

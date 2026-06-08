@@ -26,14 +26,13 @@ import {
   MapPin,
   FileText,
   ThumbsUp,
-  ThumbsDown,
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { useAppStore } from '@/store/appStore';
 import { StatusTag, SourceTag, SatisfactionTag } from '@/components/StatusTags';
 import ComplaintTimeline from '@/components/ComplaintTimeline';
-import { departments, categories } from '@/data/dictionaries';
+import { departments } from '@/data/dictionaries';
 
 const ComplaintDetail: React.FC = () => {
   const navigate = useNavigate();
@@ -60,7 +59,7 @@ const ComplaintDetail: React.FC = () => {
     );
   }
 
-  const handleTransfer = (values: any) => {
+  const handleTransfer = (values: { departmentId: string; reason: string }) => {
     const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
     const newDept = departments.find((d) => d.id === values.departmentId);
     addTimeline(id!, {
@@ -80,7 +79,7 @@ const ComplaintDetail: React.FC = () => {
     form.resetFields();
   };
 
-  const handleReturn = (values: any) => {
+  const handleReturn = (values: { reason: string }) => {
     const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
     addTimeline(id!, {
       id: `${id}-return-${Date.now()}`,
@@ -96,7 +95,7 @@ const ComplaintDetail: React.FC = () => {
     form.resetFields();
   };
 
-  const handleDelay = (values: any) => {
+  const handleDelay = (values: { days: number; reason: string }) => {
     const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
     addTimeline(id!, {
       id: `${id}-delay-${Date.now()}`,
@@ -111,7 +110,7 @@ const ComplaintDetail: React.FC = () => {
     form.resetFields();
   };
 
-  const handleUrge = (values: any) => {
+  const handleUrge = (values: { content?: string }) => {
     const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
     addTimeline(id!, {
       id: `${id}-urge-${Date.now()}`,
@@ -127,7 +126,7 @@ const ComplaintDetail: React.FC = () => {
     form.resetFields();
   };
 
-  const handleReview = (values: any) => {
+  const handleReview = (values: { pass: boolean; remark?: string; satisfaction?: number }) => {
     const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
     if (values.pass) {
       addTimeline(id!, {
@@ -159,7 +158,7 @@ const ComplaintDetail: React.FC = () => {
     form.resetFields();
   };
 
-  const handleProcess = (values: any) => {
+  const handleProcess = (values: { content: string }) => {
     const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
     addTimeline(id!, {
       id: `${id}-process-${Date.now()}`,

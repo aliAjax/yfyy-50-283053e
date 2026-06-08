@@ -77,7 +77,10 @@ export const timelineTypeMap: Record<string, string> = {
   process: '办理反馈',
   return: '退回重办',
   delay: '延期申请',
+  delay_approve: '延期通过',
+  delay_reject: '延期驳回',
   urge: '督办催办',
   review: '审核通过',
+  followup: '回访记录',
   complete: '办结归档',
 };

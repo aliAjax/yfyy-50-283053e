@@ -4,7 +4,6 @@ import {
   Button,
   Input,
   Select,
-  DatePicker,
   Space,
   Modal,
   Form,
@@ -17,23 +16,19 @@ import {
   Search,
   Filter,
   Eye,
-  Send,
-  RotateCcw,
   Bell,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { useAppStore } from '@/store/appStore';
-import type { Complaint, ComplaintSource, ComplaintStatus } from '@/types';
+import type { Complaint, ComplaintSource, ComplaintStatus, TimelineRecord } from '@/types';
 import { StatusTag, SourceTag, SatisfactionTag } from '@/components/StatusTags';
 import { categories, areas, departments, statusMap, sourceMap } from '@/data/dictionaries';
 
-const { RangePicker } = DatePicker;
-
 const ComplaintList: React.FC = () => {
   const navigate = useNavigate();
-  const { complaints, updateComplaint, addTimeline } = useAppStore();
+  const { complaints, updateComplaint, addTimeline, addComplaint } = useAppStore();
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [form] = Form.useForm();
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
@@ -194,8 +189,66 @@ const ComplaintList: React.FC = () => {
     message.success('催办通知已发送');
   };
 
-  const handleSubmit = (values: any) => {
-    message.success('投诉已录入，系统将自动派单');
+  const handleSubmit = (values: {
+    title: string;
+    categoryId: string;
+    areaId: string;
+    departmentId: string;
+    content: string;
+    contactName: string;
+    contactPhone: string;
+    address?: string;
+  }) => {
+    const now = dayjs();
+    const newId = `C${String(complaints.length + 1).padStart(5, '0')}`;
+
+    const category = categories.find((c) => c.id === values.categoryId);
+    const parentCategory = categories.find((c) => c.id === category?.parentId);
+    const area = areas.find((a) => a.id === values.areaId);
+    const department = departments.find((d) => d.id === values.departmentId);
+
+    const acceptTimeline: TimelineRecord = {
+      id: `${newId}-t1`,
+      complaintId: newId,
+      type: 'accept',
+      operator: '后台录入',
+      content: '投诉已受理，等待派单',
+      createdAt: now.format('YYYY-MM-DD HH:mm:ss'),
+    };
+
+    const assignTimeline: TimelineRecord = {
+      id: `${newId}-t2`,
+      complaintId: newId,
+      type: 'assign',
+      operator: '智能派单系统',
+      content: `根据区域和分类自动派单至${department?.name || '责任单位'}`,
+      createdAt: now.add(5, 'minute').format('YYYY-MM-DD HH:mm:ss'),
+    };
+
+    const newComplaint: Complaint = {
+      id: newId,
+      title: values.title,
+      content: values.content,
+      source: 'backend',
+      status: 'processing',
+      categoryId: values.categoryId,
+      categoryName: `${parentCategory?.name || ''} - ${category?.name || ''}`,
+      areaId: values.areaId,
+      areaName: area?.name || '',
+      departmentId: values.departmentId,
+      departmentName: department?.name || '',
+      createdAt: now.format('YYYY-MM-DD HH:mm:ss'),
+      deadline: now.add(5, 'day').format('YYYY-MM-DD HH:mm:ss'),
+      contactName: values.contactName,
+      contactPhone: values.contactPhone,
+      address: values.address,
+      isRepeat: false,
+      urgeCount: 0,
+      timelines: [acceptTimeline, assignTimeline],
+    };
+
+    addComplaint(newComplaint);
+    message.success('投诉已录入，系统已自动派单');
     setIsModalVisible(false);
     form.resetFields();
   };

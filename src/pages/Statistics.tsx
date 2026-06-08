@@ -226,7 +226,7 @@ const Statistics: React.FC = () => {
         type: 'bar',
         data: deptOverdueData.map((d) => d.rate),
         itemStyle: {
-          color: (params: any) => {
+          color: (params: { value: number }) => {
             if (params.value > 15) return '#f5222d';
             if (params.value > 8) return '#faad14';
             return '#52c41a';
@@ -621,7 +621,7 @@ const Statistics: React.FC = () => {
               >
                 <List
                   dataSource={repeatByArea}
-                  renderItem={(item, index) => (
+                  renderItem={(item) => (
                     <List.Item className="px-0 py-2.5">
                       <div className="w-full">
                         <div className="flex justify-between mb-1">
