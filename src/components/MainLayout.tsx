@@ -14,6 +14,7 @@ import {
   Building2,
   Route,
   Siren,
+  Trophy,
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAppStore } from '@/store/appStore';
@@ -62,6 +63,11 @@ const menuItems = [
     label: '统计分析',
   },
   {
+    key: '/department-performance',
+    icon: <Trophy size={18} />,
+    label: '部门绩效考核',
+  },
+  {
     key: '/knowledge-base',
     icon: <BookOpen size={18} />,
     label: '知识库管理',
@@ -82,6 +88,7 @@ const titleMap: Record<string, string> = {
   '/supervision': '督办管理',
   '/warning-center': '时限预警中心',
   '/statistics': '统计分析',
+  '/department-performance': '部门绩效考核',
   '/knowledge-base': '知识库管理',
   '/department-directory': '责任单位通讯录',
   '/notifications': '通知中心',
