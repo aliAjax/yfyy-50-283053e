@@ -22,7 +22,9 @@ export type TimelineType =
   | 'urge'
   | 'review'
   | 'followup'
-  | 'complete';
+  | 'complete'
+  | 'merge'
+  | 'merged_into';
 
 export interface Category {
   id: string;
@@ -114,8 +116,25 @@ export interface Complaint {
   dispatchRuleId?: string;
   satisfaction?: number;
   isRepeat?: boolean;
+  repeatGroupId?: string;
+  repeatCount?: number;
+  repeatComplaintIds?: string[];
   urgeCount?: number;
   timelines: TimelineRecord[];
+}
+
+export interface DuplicateComplaintResult {
+  complaint: Complaint;
+  similarity: number;
+  matchReasons: string[];
+}
+
+export interface DuplicateDetectionInput {
+  title: string;
+  categoryId: string;
+  areaId: string;
+  address?: string;
+  contactPhone: string;
 }
 
 export interface DashboardStats {

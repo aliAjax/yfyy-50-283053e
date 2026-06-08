@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import {
   Card,
+  Alert,
   Row,
   Col,
   Descriptions,
@@ -30,15 +31,17 @@ import {
   BookOpen,
   Search,
   Eye,
+  GitMerge,
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { useAppStore } from '@/store/appStore';
-import type { ExtensionRequest } from '@/types';
+import type { DuplicateComplaintResult, ExtensionRequest } from '@/types';
 import { StatusTag, SourceTag, SatisfactionTag } from '@/components/StatusTags';
 import ComplaintTimeline from '@/components/ComplaintTimeline';
 import type { KnowledgeEntry } from '@/types';
 import { categories, departments, dispatchSourceMap } from '@/data/dictionaries';
+import { getSimilarityColor, getSimilarityLabel } from '@/lib/utils';
 
 const getRootCategoryId = (categoryId: string) => {
   const category = categories.find((item) => item.id === categoryId);
@@ -123,6 +126,9 @@ const ComplaintDetail: React.FC = () => {
     addExtensionRequest,
     knowledgeEntries,
     applyKnowledgeEntry,
+    detectDuplicates,
+    mergeComplaint,
+    getRepeatGroup,
   } = useAppStore();
   const complaint = getComplaintById(id || '');
 
@@ -135,6 +141,7 @@ const ComplaintDetail: React.FC = () => {
   const [knowledgeKeyword, setKnowledgeKeyword] = useState('');
   const [previewKnowledge, setPreviewKnowledge] = useState<KnowledgeEntry | null>(null);
   const [selectedTransferDepartmentId, setSelectedTransferDepartmentId] = useState<string | undefined>();
+  const [repeatGroupVisible, setRepeatGroupVisible] = useState(false);
   const [form] = Form.useForm();
 
   if (!complaint) {
@@ -276,6 +283,31 @@ const ComplaintDetail: React.FC = () => {
     form.resetFields();
   };
 
+  const repeatGroup = complaint.repeatGroupId ? getRepeatGroup(complaint.repeatGroupId) : [];
+  const similarComplaints = detectDuplicates(
+    {
+      title: complaint.title,
+      categoryId: complaint.categoryId,
+      areaId: complaint.areaId,
+      address: complaint.address,
+      contactPhone: complaint.contactPhone,
+    },
+    complaint.id
+  );
+
+  const handleMergeToComplaint = (targetId: string) => {
+    Modal.confirm({
+      title: '确认合并投诉',
+      content: `确定要将当前投诉合并到投诉 ${targetId} 吗？合并后将更新重复投诉标记和详情时间线。`,
+      okText: '确认合并',
+      cancelText: '取消',
+      onOk: () => {
+        mergeComplaint(complaint.id, targetId, '督办员');
+        message.success('投诉合并成功');
+      },
+    });
+  };
+
   const activeKnowledgeEntries = knowledgeEntries
     .filter((entry) => entry.status === 'active')
     .sort((a, b) => b.usageCount - a.usageCount);
@@ -326,7 +358,11 @@ const ComplaintDetail: React.FC = () => {
           </Button>
           <h2 className="text-lg font-semibold text-gray-800">投诉详情</h2>
           <StatusTag status={complaint.status} />
-          {complaint.isRepeat && <Tag color="orange">重复投诉</Tag>}
+          {complaint.isRepeat && (
+            <Tag color="orange">
+              重复投诉{complaint.repeatCount ? `(${complaint.repeatCount}件)` : ''}
+            </Tag>
+          )}
           {isOverdue && complaint.status !== 'completed' && (
             <Tag color="red">已超期</Tag>
           )}
@@ -356,6 +392,11 @@ const ComplaintDetail: React.FC = () => {
           {(complaint.status === 'processing' || complaint.status === 'returned') && (
             <Button type="primary" icon={<MessageSquare size={14} />} onClick={() => setProcessModalVisible(true)}>
               提交办理结果
+            </Button>
+          )}
+          {complaint.isRepeat && repeatGroup.length > 0 && (
+            <Button icon={<GitMerge size={14} />} onClick={() => setRepeatGroupVisible(true)}>
+              重复组
             </Button>
           )}
         </Space>
@@ -416,6 +457,14 @@ const ComplaintDetail: React.FC = () => {
                   <Tag color="orange">{complaint.urgeCount} 次</Tag>
                 </Descriptions.Item>
               )}
+              {complaint.isRepeat && (
+                <Descriptions.Item label="重复投诉">
+                  <Space wrap>
+                    <Tag color="orange">{complaint.repeatCount || repeatGroup.length || 2} 件</Tag>
+                    {complaint.repeatGroupId && <span className="text-gray-500">{complaint.repeatGroupId}</span>}
+                  </Space>
+                </Descriptions.Item>
+              )}
             </Descriptions>
 
             <Divider />
@@ -459,12 +508,77 @@ const ComplaintDetail: React.FC = () => {
               </Row>
             </div>
           </Card>
+
+          {complaint.isRepeat && repeatGroup.length > 0 && (
+            <Card title={<span className="font-semibold">关联重复投诉</span>} className="shadow-sm mt-4">
+              <List
+                dataSource={repeatGroup.filter((item) => item.id !== complaint.id)}
+                locale={{ emptyText: '暂无关联重复投诉' }}
+                renderItem={(item) => (
+                  <List.Item
+                    actions={[
+                      <Button key="detail" type="link" size="small" onClick={() => navigate(`/complaints/${item.id}`)}>
+                        查看
+                      </Button>,
+                    ]}
+                  >
+                    <List.Item.Meta
+                      title={
+                        <Space wrap>
+                          <span>{item.title}</span>
+                          <Tag color="orange">{item.source === 'web' ? '公众提交' : '后台录入'}</Tag>
+                        </Space>
+                      }
+                      description={`${item.id} · ${item.areaName} · ${item.createdAt}`}
+                    />
+                  </List.Item>
+                )}
+              />
+            </Card>
+          )}
         </Col>
 
         <Col xs={24} lg={8}>
           <Card title={<span className="font-semibold">办理时间线</span>} className="shadow-sm">
             <ComplaintTimeline records={complaint.timelines} />
           </Card>
+          {similarComplaints.length > 0 && (
+            <Card title={<span className="font-semibold">疑似相似投诉</span>} className="shadow-sm mt-4">
+              <List
+                dataSource={similarComplaints}
+                renderItem={(item: DuplicateComplaintResult) => (
+                  <List.Item
+                    actions={[
+                      <Button key="merge" type="link" size="small" onClick={() => handleMergeToComplaint(item.complaint.id)}>
+                        合并
+                      </Button>,
+                    ]}
+                  >
+                    <List.Item.Meta
+                      title={
+                        <Space wrap>
+                          <span>{item.complaint.title}</span>
+                          <span style={{ color: getSimilarityColor(item.similarity) }}>
+                            {getSimilarityLabel(item.similarity)} {Math.round(item.similarity * 100)}%
+                          </span>
+                        </Space>
+                      }
+                      description={
+                        <div className="space-y-1">
+                          <div>{item.complaint.id} · {item.complaint.areaName}</div>
+                          <Space size={[4, 4]} wrap>
+                            {item.matchReasons.map((reason) => (
+                              <Tag key={reason}>{reason}</Tag>
+                            ))}
+                          </Space>
+                        </div>
+                      }
+                    />
+                  </List.Item>
+                )}
+              />
+            </Card>
+          )}
         </Col>
       </Row>
 
@@ -798,6 +912,44 @@ const ComplaintDetail: React.FC = () => {
             </div>
           </div>
         )}
+      </Modal>
+
+      <Modal
+        title="重复投诉组详情"
+        open={repeatGroupVisible}
+        onCancel={() => setRepeatGroupVisible(false)}
+        footer={null}
+        width={760}
+      >
+        <Alert
+          className="mb-4"
+          type="info"
+          showIcon
+          message={`当前重复投诉组共 ${repeatGroup.length} 件`}
+          description={complaint.repeatGroupId}
+        />
+        <List
+          dataSource={repeatGroup}
+          renderItem={(item) => (
+            <List.Item
+              actions={[
+                <Button key="detail" type="link" size="small" onClick={() => navigate(`/complaints/${item.id}`)}>
+                  查看详情
+                </Button>,
+              ]}
+            >
+              <List.Item.Meta
+                title={
+                  <Space wrap>
+                    <span>{item.title}</span>
+                    {item.id === complaint.id && <Tag color="blue">当前</Tag>}
+                  </Space>
+                }
+                description={`${item.id} · ${item.areaName} · ${item.categoryName} · ${item.contactPhone}`}
+              />
+            </List.Item>
+          )}
+        />
       </Modal>
     </div>
   );

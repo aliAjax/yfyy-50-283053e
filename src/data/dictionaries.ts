@@ -227,4 +227,6 @@ export const timelineTypeMap: Record<string, string> = {
   review: '审核通过',
   followup: '回访记录',
   complete: '办结归档',
+  merge: '投诉合并',
+  merged_into: '已合并至',
 };

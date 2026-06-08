@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import {
   Alert,
   Table,
+  List,
   Button,
   Input,
   Select,
@@ -18,24 +19,36 @@ import {
   Filter,
   Eye,
   Bell,
+  GitMerge,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { useAppStore, type BackendComplaintForm } from '@/store/appStore';
-import type { Complaint, ComplaintSource, ComplaintStatus } from '@/types';
+import type { Complaint, ComplaintSource, ComplaintStatus, DuplicateComplaintResult } from '@/types';
 import { StatusTag, SourceTag, SatisfactionTag } from '@/components/StatusTags';
 import { categories, areas, departments, statusMap, sourceMap } from '@/data/dictionaries';
-import { matchDispatchRule } from '@/lib/utils';
+import { getSimilarityColor, getSimilarityLabel, matchDispatchRule } from '@/lib/utils';
 
 const ComplaintList: React.FC = () => {
   const navigate = useNavigate();
-  const { complaints, dispatchRules, updateComplaint, addTimeline, submitBackendComplaint } = useAppStore();
+  const {
+    complaints,
+    dispatchRules,
+    updateComplaint,
+    addTimeline,
+    submitBackendComplaint,
+    detectDuplicates,
+    mergeComplaint,
+  } = useAppStore();
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [form] = Form.useForm<BackendComplaintForm>();
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>();
   const [selectedAreaId, setSelectedAreaId] = useState<string>();
+  const [pendingSubmitData, setPendingSubmitData] = useState<BackendComplaintForm | null>(null);
+  const [submitDuplicateResults, setSubmitDuplicateResults] = useState<DuplicateComplaintResult[]>([]);
+  const [submitDuplicateModalVisible, setSubmitDuplicateModalVisible] = useState(false);
 
   const [filters, setFilters] = useState({
     keyword: '',
@@ -76,7 +89,7 @@ const ComplaintList: React.FC = () => {
           <span className="text-gray-800">{title}</span>
           {record.isRepeat && (
             <span className="ml-2 text-xs text-orange-500 bg-orange-50 px-1.5 py-0.5 rounded">
-              重复投诉
+              重复投诉{record.repeatCount ? `(${record.repeatCount}件)` : ''}
             </span>
           )}
         </div>
@@ -207,6 +220,9 @@ const ComplaintList: React.FC = () => {
     form.resetFields();
     setSelectedCategoryId(undefined);
     setSelectedAreaId(undefined);
+    setPendingSubmitData(null);
+    setSubmitDuplicateResults([]);
+    setSubmitDuplicateModalVisible(false);
   };
 
   const closeBackendModal = () => {
@@ -214,7 +230,7 @@ const ComplaintList: React.FC = () => {
     resetBackendForm();
   };
 
-  const handleSubmit = (values: BackendComplaintForm) => {
+  const finishSubmit = (values: BackendComplaintForm) => {
     const complaint = submitBackendComplaint(values);
     if (complaint.dispatchSource === 'rule') {
       message.success('投诉已录入，系统已按规则自动派单');
@@ -223,6 +239,38 @@ const ComplaintList: React.FC = () => {
     } else {
       message.warning('投诉已录入，未匹配到派单规则，请后续人工选择责任单位');
     }
+    setIsModalVisible(false);
+    resetBackendForm();
+  };
+
+  const handleSubmit = (values: BackendComplaintForm) => {
+    const duplicates = detectDuplicates({
+      title: values.title,
+      categoryId: values.categoryId,
+      areaId: values.areaId,
+      address: values.address,
+      contactPhone: values.contactPhone,
+    });
+
+    if (duplicates.length > 0) {
+      setPendingSubmitData(values);
+      setSubmitDuplicateResults(duplicates);
+      setSubmitDuplicateModalVisible(true);
+      return;
+    }
+
+    finishSubmit(values);
+  };
+
+  const handleContinueCreate = () => {
+    if (pendingSubmitData) finishSubmit(pendingSubmitData);
+  };
+
+  const handleMergeToComplaint = (targetComplaint: Complaint) => {
+    if (!pendingSubmitData) return;
+    const complaint = submitBackendComplaint(pendingSubmitData);
+    mergeComplaint(complaint.id, targetComplaint.id, '后台录入');
+    message.success(`已合并到投诉 ${targetComplaint.id}`);
     setIsModalVisible(false);
     resetBackendForm();
   };
@@ -471,6 +519,83 @@ const ComplaintList: React.FC = () => {
             </Space>
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        title={
+          <Space>
+            <GitMerge size={18} className="text-orange-500" />
+            <span>疑似重复投诉</span>
+          </Space>
+        }
+        open={submitDuplicateModalVisible}
+        onCancel={() => setSubmitDuplicateModalVisible(false)}
+        width={760}
+        footer={[
+          <Button key="cancel" onClick={() => setSubmitDuplicateModalVisible(false)}>
+            返回修改
+          </Button>,
+          <Button key="continue" type="primary" onClick={handleContinueCreate}>
+            继续创建新投诉
+          </Button>,
+        ]}
+      >
+        <Alert
+          className="mb-4"
+          type="warning"
+          showIcon
+          message={`检测到 ${submitDuplicateResults.length} 条疑似重复投诉`}
+          description="请选择合并到已有投诉，或继续创建新投诉。"
+        />
+        <List
+          dataSource={submitDuplicateResults}
+          renderItem={(item) => (
+            <List.Item
+              actions={[
+                <Button
+                  key="merge"
+                  type="primary"
+                  size="small"
+                  onClick={() => handleMergeToComplaint(item.complaint)}
+                >
+                  合并到此
+                </Button>,
+              ]}
+            >
+              <List.Item.Meta
+                title={
+                  <Space wrap>
+                    <span>{item.complaint.title}</span>
+                    <span
+                      className="text-xs px-2 py-0.5 rounded-full"
+                      style={{ color: getSimilarityColor(item.similarity), background: '#fff7e6' }}
+                    >
+                      {getSimilarityLabel(item.similarity)} {Math.round(item.similarity * 100)}%
+                    </span>
+                    {item.complaint.repeatCount && (
+                      <span className="text-xs text-orange-500">重复{item.complaint.repeatCount}件</span>
+                    )}
+                  </Space>
+                }
+                description={
+                  <div className="space-y-1 text-sm text-gray-500">
+                    <div>
+                      {item.complaint.id} · {item.complaint.areaName} · {item.complaint.categoryName}
+                    </div>
+                    <div>{item.complaint.address || '无详细地址'} · {item.complaint.contactPhone}</div>
+                    <Space size={[4, 4]} wrap>
+                      {item.matchReasons.map((reason) => (
+                        <span key={reason} className="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">
+                          {reason}
+                        </span>
+                      ))}
+                    </Space>
+                  </div>
+                }
+              />
+            </List.Item>
+          )}
+        />
       </Modal>
     </div>
   );

@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react';
-import { Alert, Button, Card, Col, Form, Input, Row, Select, Space, Typography, message } from 'antd';
-import { ArrowLeft, FileText, Send } from 'lucide-react';
+import { Alert, Button, Card, Col, Form, Input, List, Modal, Row, Select, Space, Typography, message } from 'antd';
+import { ArrowLeft, FileText, GitMerge, Send } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore, type PublicComplaintForm } from '@/store/appStore';
-import type { Complaint } from '@/types';
+import type { Complaint, DuplicateComplaintResult } from '@/types';
 import { areas, categories, departments } from '@/data/dictionaries';
 import ComplaintTimeline from '@/components/ComplaintTimeline';
-import { matchDispatchRule } from '@/lib/utils';
+import { getSimilarityColor, getSimilarityLabel, matchDispatchRule } from '@/lib/utils';
 
 const { TextArea } = Input;
 
@@ -14,10 +14,15 @@ const PublicSubmit: React.FC = () => {
   const navigate = useNavigate();
   const [form] = Form.useForm<PublicComplaintForm>();
   const submitPublicComplaint = useAppStore((state) => state.submitPublicComplaint);
+  const detectDuplicates = useAppStore((state) => state.detectDuplicates);
+  const mergeComplaint = useAppStore((state) => state.mergeComplaint);
   const dispatchRules = useAppStore((state) => state.dispatchRules);
   const [submittedComplaint, setSubmittedComplaint] = useState<Complaint | null>(null);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>();
   const [selectedAreaId, setSelectedAreaId] = useState<string>();
+  const [pendingSubmitData, setPendingSubmitData] = useState<PublicComplaintForm | null>(null);
+  const [duplicateResults, setDuplicateResults] = useState<DuplicateComplaintResult[]>([]);
+  const [duplicateModalVisible, setDuplicateModalVisible] = useState(false);
 
   const parentCategories = categories.filter((category) => !category.parentId);
   const dispatchPreview = useMemo(() => {
@@ -27,17 +32,56 @@ const PublicSubmit: React.FC = () => {
     return { match, department };
   }, [dispatchRules, selectedAreaId, selectedCategoryId]);
 
-  const handleSubmit = (values: PublicComplaintForm) => {
-    const complaint = submitPublicComplaint(values);
-    setSubmittedComplaint(complaint);
+  const resetSubmitState = () => {
     form.resetFields();
     setSelectedCategoryId(undefined);
     setSelectedAreaId(undefined);
+    setPendingSubmitData(null);
+    setDuplicateResults([]);
+    setDuplicateModalVisible(false);
+  };
+
+  const finishSubmit = (values: PublicComplaintForm) => {
+    const complaint = submitPublicComplaint(values);
+    setSubmittedComplaint(complaint);
+    resetSubmitState();
     if (complaint.dispatchSource === 'rule') {
       message.success('提交成功，已自动受理并按规则派单');
     } else {
       message.warning('提交成功，未匹配到派单规则，后台将人工选择责任单位');
     }
+  };
+
+  const handleSubmit = (values: PublicComplaintForm) => {
+    const duplicates = detectDuplicates({
+      title: values.title,
+      categoryId: values.categoryId,
+      areaId: values.areaId,
+      address: values.address,
+      contactPhone: values.contactPhone,
+    });
+
+    if (duplicates.length > 0) {
+      setPendingSubmitData(values);
+      setDuplicateResults(duplicates);
+      setDuplicateModalVisible(true);
+      return;
+    }
+
+    finishSubmit(values);
+  };
+
+  const handleContinueCreate = () => {
+    if (pendingSubmitData) finishSubmit(pendingSubmitData);
+  };
+
+  const handleMergeToComplaint = (targetComplaint: Complaint) => {
+    if (!pendingSubmitData) return;
+    const complaint = submitPublicComplaint(pendingSubmitData);
+    mergeComplaint(complaint.id, targetComplaint.id, '公众提交');
+    setSubmittedComplaint(useAppStore.getState().getComplaintById(complaint.id) || complaint);
+    resetSubmitState();
+    message.success('提交成功，已合并到已有投诉');
   };
 
   return (
@@ -176,9 +220,7 @@ const PublicSubmit: React.FC = () => {
                     </Button>
                     <Button
                       onClick={() => {
-                        form.resetFields();
-                        setSelectedCategoryId(undefined);
-                        setSelectedAreaId(undefined);
+                        resetSubmitState();
                       }}
                     >
                       重置
@@ -209,6 +251,80 @@ const PublicSubmit: React.FC = () => {
           )}
         </Row>
       </main>
+
+      <Modal
+        title={
+          <Space>
+            <GitMerge size={18} className="text-orange-500" />
+            <span>发现疑似重复投诉</span>
+          </Space>
+        }
+        open={duplicateModalVisible}
+        onCancel={() => setDuplicateModalVisible(false)}
+        width={760}
+        footer={[
+          <Button key="cancel" onClick={() => setDuplicateModalVisible(false)}>
+            返回修改
+          </Button>,
+          <Button key="continue" type="primary" onClick={handleContinueCreate}>
+            继续创建新投诉
+          </Button>,
+        ]}
+      >
+        <Alert
+          className="mb-4"
+          type="warning"
+          showIcon
+          message={`系统检测到 ${duplicateResults.length} 条疑似重复投诉`}
+          description="可选择合并到已有投诉，也可以继续创建新投诉。"
+        />
+        <List
+          dataSource={duplicateResults}
+          renderItem={(item) => (
+            <List.Item
+              actions={[
+                <Button
+                  key="merge"
+                  type="primary"
+                  size="small"
+                  onClick={() => handleMergeToComplaint(item.complaint)}
+                >
+                  合并到此
+                </Button>,
+              ]}
+            >
+              <List.Item.Meta
+                title={
+                  <Space wrap>
+                    <span>{item.complaint.title}</span>
+                    <span
+                      className="text-xs px-2 py-0.5 rounded-full"
+                      style={{ color: getSimilarityColor(item.similarity), background: '#fff7e6' }}
+                    >
+                      {getSimilarityLabel(item.similarity)} {Math.round(item.similarity * 100)}%
+                    </span>
+                  </Space>
+                }
+                description={
+                  <div className="space-y-1 text-sm text-gray-500">
+                    <div>
+                      {item.complaint.id} · {item.complaint.areaName} · {item.complaint.categoryName}
+                    </div>
+                    <div>{item.complaint.address || '无详细地址'} · {item.complaint.contactPhone}</div>
+                    <Space size={[4, 4]} wrap>
+                      {item.matchReasons.map((reason) => (
+                        <span key={reason} className="text-xs bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded">
+                          {reason}
+                        </span>
+                      ))}
+                    </Space>
+                  </div>
+                }
+              />
+            </List.Item>
+          )}
+        />
+      </Modal>
     </div>
   );
 };

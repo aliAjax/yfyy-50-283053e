@@ -5,6 +5,8 @@ import type {
   Complaint,
   DashboardStats,
   DispatchRule,
+  DuplicateComplaintResult,
+  DuplicateDetectionInput,
   ExtensionRequest,
   KnowledgeEntry,
   NotificationType,
@@ -19,7 +21,7 @@ import {
 } from '@/data/mockData';
 import { categories, areas, departments, initialDispatchRules } from '@/data/dictionaries';
 import { initialKnowledgeEntries } from '@/data/knowledgeBase';
-import { matchDispatchRule } from '@/lib/utils';
+import { detectDuplicateComplaints, matchDispatchRule } from '@/lib/utils';
 
 export interface PublicComplaintForm {
   title: string;
@@ -55,6 +57,9 @@ interface AppState {
   addComplaint: (complaint: Complaint) => void;
   submitPublicComplaint: (values: PublicComplaintForm) => Complaint;
   submitBackendComplaint: (values: BackendComplaintForm) => Complaint;
+  detectDuplicates: (input: DuplicateDetectionInput, excludeId?: string) => DuplicateComplaintResult[];
+  mergeComplaint: (sourceId: string, targetId: string, operator?: string) => void;
+  getRepeatGroup: (groupId: string) => Complaint[];
   updateComplaint: (id: string, updates: Partial<Complaint>) => void;
   addTimeline: (complaintId: string, timeline: Complaint['timelines'][0]) => void;
   addExtensionRequest: (request: ExtensionRequest) => void;
@@ -319,6 +324,79 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     get().addComplaint(newComplaint);
     return newComplaint;
+  },
+
+  detectDuplicates: (input, excludeId) => {
+    return detectDuplicateComplaints(input, get().complaints, categories, { excludeId });
+  },
+
+  mergeComplaint: (sourceId, targetId, operator = '系统') => {
+    if (sourceId === targetId) return;
+    const sourceComplaint = get().getComplaintById(sourceId);
+    const targetComplaint = get().getComplaintById(targetId);
+    if (!sourceComplaint || !targetComplaint) return;
+
+    const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    const repeatGroupId = targetComplaint.repeatGroupId || sourceComplaint.repeatGroupId || `RG-${targetId}`;
+    const repeatComplaintIds = Array.from(
+      new Set([
+        ...(targetComplaint.repeatComplaintIds || [targetId]),
+        ...(sourceComplaint.repeatComplaintIds || [sourceId]),
+        targetId,
+        sourceId,
+      ])
+    );
+    const repeatCount = repeatComplaintIds.length;
+
+    const sourceTimeline: TimelineRecord = {
+      id: `${sourceId}-merged-into-${Date.now()}`,
+      complaintId: sourceId,
+      type: 'merged_into',
+      operator,
+      content: `已合并至投诉 ${targetId}（${targetComplaint.title}）`,
+      createdAt: now,
+    };
+    const targetTimeline: TimelineRecord = {
+      id: `${targetId}-merge-${Date.now()}`,
+      complaintId: targetId,
+      type: 'merge',
+      operator,
+      content: `合并投诉 ${sourceId}（${sourceComplaint.title}），当前重复投诉共 ${repeatCount} 件`,
+      createdAt: now,
+    };
+
+    set((state) => ({
+      complaints: state.complaints.map((complaint) => {
+        if (repeatComplaintIds.includes(complaint.id)) {
+          return {
+            ...complaint,
+            isRepeat: true,
+            repeatGroupId,
+            repeatCount,
+            repeatComplaintIds,
+            timelines: [
+              ...complaint.timelines,
+              ...(complaint.id === sourceId ? [sourceTimeline] : []),
+              ...(complaint.id === targetId ? [targetTimeline] : []),
+            ],
+          };
+        }
+        if (complaint.repeatGroupId === repeatGroupId) {
+          return {
+            ...complaint,
+            isRepeat: true,
+            repeatCount,
+            repeatComplaintIds,
+          };
+        }
+        return complaint;
+      }),
+    }));
+    get().refreshStats();
+  },
+
+  getRepeatGroup: (groupId) => {
+    return get().complaints.filter((complaint) => complaint.repeatGroupId === groupId);
   },
 
   updateComplaint: (id, updates) => {

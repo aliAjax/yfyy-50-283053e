@@ -12,6 +12,8 @@ import {
   ThumbsUp,
   ThumbsDown,
   Phone,
+  GitMerge,
+  GitBranch,
 } from 'lucide-react';
 import type { TimelineRecord, TimelineType } from '@/types';
 import { dispatchSourceMap, timelineTypeMap } from '@/data/dictionaries';
@@ -30,6 +32,8 @@ const iconMap: Record<TimelineType, React.ReactNode> = {
   review: <CheckCircle2 size={16} />,
   followup: <Phone size={16} />,
   complete: <Archive size={16} />,
+  merge: <GitMerge size={16} />,
+  merged_into: <GitBranch size={16} />,
 };
 
 const colorMap: Record<TimelineType, string> = {
@@ -46,6 +50,8 @@ const colorMap: Record<TimelineType, string> = {
   review: '#52c41a',
   followup: '#13c2c2',
   complete: '#1890ff',
+  merge: '#eb2f96',
+  merged_into: '#eb2f96',
 };
 
 interface ComplaintTimelineProps {
