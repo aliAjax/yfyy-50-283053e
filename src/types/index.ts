@@ -113,6 +113,13 @@ export interface DuplicateComplaintResult {
   complaint: Complaint;
   similarity: number;
   matchReasons: string[];
+  detailScores?: {
+    title: { score: number; weight: number; matched: boolean; label: string; detail?: string };
+    category: { score: number; weight: number; matched: boolean; label: string; detail?: string };
+    area: { score: number; weight: number; matched: boolean; label: string; detail?: string };
+    address: { score: number; weight: number; matched: boolean; label: string; detail?: string };
+    phone: { score: number; weight: number; matched: boolean; label: string; detail?: string };
+  };
 }
 
 export interface DuplicateDetectionInput {

@@ -18,8 +18,12 @@ import {
   GitMerge,
   Plus,
   X,
+  ChevronRight,
+  XCircle,
+  Users,
+  Info,
 } from 'lucide-react';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '@/store/appStore';
 import type { Complaint, Department, AssignSource, DuplicateComplaintResult } from '@/types';
@@ -45,6 +49,9 @@ const PublicSubmit: React.FC = () => {
   const [showDuplicateModal, setShowDuplicateModal] = useState(false);
   const [pendingSubmitData, setPendingSubmitData] = useState<any>(null);
   const [checkingDuplicates, setCheckingDuplicates] = useState(false);
+  const [isMergedSubmit, setIsMergedSubmit] = useState(false);
+  const [mergedToComplaint, setMergedToComplaint] = useState<Complaint | null>(null);
+  const [expandedSimilarityIndex, setExpandedSimilarityIndex] = useState<number | null>(null);
 
   const topLevelCategories = categories.filter((c) => !c.parentId);
 
@@ -160,12 +167,15 @@ const PublicSubmit: React.FC = () => {
   };
 
   const handleContinueCreate = () => {
+    setIsMergedSubmit(false);
+    setMergedToComplaint(null);
     if (pendingSubmitData) {
       doSubmit(pendingSubmitData);
     }
     setShowDuplicateModal(false);
     setPendingSubmitData(null);
     setDuplicateResults([]);
+    setExpandedSimilarityIndex(null);
   };
 
   const handleMergeToComplaint = (targetComplaint: Complaint) => {
@@ -195,6 +205,9 @@ const PublicSubmit: React.FC = () => {
 
           mergeComplaint(newComplaintResult.id, targetComplaint.id, '公众提交');
 
+          const updatedTarget = getComplaintById(targetComplaint.id);
+          setIsMergedSubmit(true);
+          setMergedToComplaint(updatedTarget || targetComplaint);
           setNewComplaint(newComplaintResult);
           setSubmitted(true);
           message.success('投诉已提交并合并到已有投诉');
@@ -202,6 +215,7 @@ const PublicSubmit: React.FC = () => {
         setShowDuplicateModal(false);
         setPendingSubmitData(null);
         setDuplicateResults([]);
+        setExpandedSimilarityIndex(null);
       },
     });
   };
@@ -223,6 +237,8 @@ const PublicSubmit: React.FC = () => {
     setMatchedDept(null);
     setSelectedCatId('c1-1');
     setSelectedAreaId('a1');
+    setIsMergedSubmit(false);
+    setMergedToComplaint(null);
     submitForm.resetFields();
   };
 
@@ -251,6 +267,61 @@ const PublicSubmit: React.FC = () => {
         </p>
       </div>
 
+      {isMergedSubmit && mergedToComplaint && (
+        <Alert
+          type="info"
+          showIcon
+          icon={<GitMerge size={18} className="text-blue-500" />}
+          message="已进入重复投诉组"
+          description={
+            <div className="space-y-3">
+              <p className="text-sm">
+                您的投诉已合并至相似投诉组，与
+                <span className="font-medium text-gray-800">「{mergedToComplaint.title}」</span>
+                （<span className="font-mono text-blue-600">{mergedToComplaint.id}</span>）并案处理。
+              </p>
+              <div className="flex items-center gap-4 text-xs">
+                <div className="flex items-center gap-1">
+                  <Users size={12} className="text-blue-400" />
+                  <span className="text-gray-600">
+                    组内共 <span className="font-medium text-blue-600">{mergedToComplaint.repeatCount || 2}</span> 件投诉
+                  </span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <Clock size={12} className="text-orange-400" />
+                  <span className="text-gray-600">
+                    主投诉状态：
+                    <Tag color={getStatusColor(mergedToComplaint.status)} className="ml-1" style={{ margin: 0 }}>
+                      {statusMap[mergedToComplaint.status]}
+                    </Tag>
+                  </span>
+                </div>
+              </div>
+              <div className="text-xs text-gray-500 bg-blue-50/50 rounded p-2 border border-blue-100">
+                <p className="flex items-start gap-1">
+                  <Info size={12} className="text-blue-400 mt-0.5 flex-shrink-0" />
+                  <span>
+                    合并处理可加快问题解决进度，处理结果将统一反馈。您仍可通过本投诉编号（{newComplaint?.id}）查询办理进度。
+                  </span>
+                </p>
+              </div>
+            </div>
+          }
+          className="border-blue-200 bg-blue-50/30"
+        />
+      )}
+
+      {!isMergedSubmit && (
+        <Alert
+          type="success"
+          showIcon
+          icon={<CheckCircle size={18} />}
+          message="独立投诉工单"
+          description="您的投诉已作为独立工单受理，将由责任单位按流程办理。"
+          className="border-green-200 bg-green-50/30"
+        />
+      )}
+
       <Descriptions column={2} size="small" bordered>
         <Descriptions.Item label="事项分类">{newComplaint?.categoryName}</Descriptions.Item>
         <Descriptions.Item label="所属区域">{newComplaint?.areaName}</Descriptions.Item>
@@ -267,6 +338,18 @@ const PublicSubmit: React.FC = () => {
             {statusMap[newComplaint?.status || '']}
           </Tag>
         </Descriptions.Item>
+        {isMergedSubmit && mergedToComplaint && (
+          <Descriptions.Item label="重复投诉组" span={2}>
+            <div className="flex items-center gap-2 flex-wrap">
+              <Tag color="blue" icon={<GitMerge size={10} />}>
+                共 {mergedToComplaint.repeatCount || 2} 件
+              </Tag>
+              <span className="text-xs text-gray-500">
+                主投诉：{mergedToComplaint.id}
+              </span>
+            </div>
+          </Descriptions.Item>
+        )}
         <Descriptions.Item label="提交时间" span={2}>
           <span className="flex items-center gap-1">
             <Clock size={12} className="text-gray-400" />
@@ -518,141 +601,383 @@ const PublicSubmit: React.FC = () => {
     </Form>
   );
 
-  const DuplicateModal = () => (
-    <Modal
-      title={
-        <div className="flex items-center gap-2">
-          <AlertTriangle size={20} className="text-orange-500" />
-          <span>发现疑似重复投诉</span>
-        </div>
-      }
-      open={showDuplicateModal}
-      onCancel={() => {
-        setShowDuplicateModal(false);
-        setPendingSubmitData(null);
-        setDuplicateResults([]);
-      }}
-      footer={null}
-      width={720}
-      closeIcon={<X size={18} />}
-      destroyOnClose
-    >
-      <div className="space-y-4">
-        <Alert
-          type="warning"
-          showIcon
-          icon={<AlertTriangle size={16} />}
-          message={`系统检测到 ${duplicateResults.length} 条疑似重复的投诉记录`}
-          description="为提高处理效率，建议您合并到已有投诉。您也可以选择继续创建新投诉。"
-        />
+  const DuplicateModal = () => {
+    const sortedResults = useMemo(() => {
+      return [...duplicateResults].sort((a, b) => b.similarity - a.similarity);
+    }, [duplicateResults]);
 
-        <div className="max-h-[400px] overflow-y-auto pr-1">
-          <List
-            itemLayout="vertical"
-            dataSource={duplicateResults}
-            renderItem={(item) => {
-              const level = getSimilarityLevel(item.similarity);
-              const color = getSimilarityColor(item.similarity);
-              const label = getSimilarityLabel(item.similarity);
-              return (
-                <List.Item
-                  key={item.complaint.id}
-                  className="border border-gray-200 rounded-lg mb-3 hover:border-orange-300 hover:bg-orange-50/30 transition-colors"
-                  style={{ padding: '16px', marginBottom: '12px' }}
-                >
-                  <div className="w-full">
-                    <div className="flex items-start justify-between gap-3 mb-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="font-medium text-gray-800 truncate">
-                            {item.complaint.title}
-                          </span>
-                          <Tag
-                            color={level === 'high' ? 'red' : level === 'medium' ? 'orange' : 'green'}
-                            className="m-0 flex-shrink-0"
-                          >
-                            {label}
+    const getStatusText = (status: string) => {
+      const statusTextMap: Record<string, string> = {
+        pending_accept: '待受理',
+        pending_assign: '待派单',
+        processing: '办理中',
+        pending_review: '待审核',
+        returned: '已退回',
+        completed: '已办结',
+        overdue: '已逾期',
+      };
+      return statusTextMap[status] || statusMap[status] || status;
+    };
+
+    const getStatusDescription = (status: string) => {
+      const descMap: Record<string, string> = {
+        pending_accept: '投诉已提交，等待工作人员受理',
+        pending_assign: '已受理，等待分派至责任单位',
+        processing: '责任单位正在处理中',
+        pending_review: '办理完成，等待审核验收',
+        returned: '因材料不足等原因被退回',
+        completed: '已办结归档',
+        overdue: '超出办理时限',
+      };
+      return descMap[status] || '';
+    };
+
+    const getSimilarityDetailItems = (item: DuplicateComplaintResult) => {
+      const items: { key: string; label: string; matched: boolean; detail?: string; score: number; weight: number }[] = [];
+      const scores = item.detailScores;
+
+      if (scores) {
+        items.push({
+          key: 'title',
+          label: '标题相似',
+          matched: scores.title.matched,
+          detail: scores.title.detail,
+          score: scores.title.score,
+          weight: scores.title.weight,
+        });
+        items.push({
+          key: 'category',
+          label: '分类匹配',
+          matched: scores.category.matched,
+          detail: scores.category.detail,
+          score: scores.category.score,
+          weight: scores.category.weight,
+        });
+        items.push({
+          key: 'area',
+          label: '区域相同',
+          matched: scores.area.matched,
+          detail: scores.area.detail,
+          score: scores.area.score,
+          weight: scores.area.weight,
+        });
+        if (scores.address.weight > 0) {
+          items.push({
+            key: 'address',
+            label: '地址相似',
+            matched: scores.address.matched,
+            detail: scores.address.detail,
+            score: scores.address.score,
+            weight: scores.address.weight,
+          });
+        }
+        if (scores.phone.weight > 0) {
+          items.push({
+            key: 'phone',
+            label: '联系电话相同',
+            matched: scores.phone.matched,
+            detail: scores.phone.detail,
+            score: scores.phone.score,
+            weight: scores.phone.weight,
+          });
+        }
+      } else {
+        items.push({
+          key: 'title',
+          label: '标题相似',
+          matched: item.matchReasons.some((r) => r.includes('标题')),
+          detail: item.matchReasons.find((r) => r.includes('标题')),
+          score: 0,
+          weight: 0,
+        });
+        items.push({
+          key: 'category',
+          label: '分类相同',
+          matched: item.matchReasons.includes('分类相同') || item.matchReasons.includes('同类大分类'),
+          detail: item.matchReasons.find((r) => r.includes('分类') || r.includes('同类')),
+          score: 0,
+          weight: 0,
+        });
+        items.push({
+          key: 'area',
+          label: '区域相同',
+          matched: item.matchReasons.includes('区域相同'),
+          score: 0,
+          weight: 0,
+        });
+        items.push({
+          key: 'address',
+          label: '地址相似',
+          matched: item.matchReasons.some((r) => r.includes('地址')),
+          detail: item.matchReasons.find((r) => r.includes('地址')),
+          score: 0,
+          weight: 0,
+        });
+        items.push({
+          key: 'phone',
+          label: '联系电话相同',
+          matched: item.matchReasons.includes('联系电话相同'),
+          score: 0,
+          weight: 0,
+        });
+      }
+
+      return items;
+    };
+
+    return (
+      <Modal
+        title={
+          <div className="flex items-center gap-2">
+            <AlertTriangle size={20} className="text-orange-500" />
+            <span>发现疑似重复投诉</span>
+          </div>
+        }
+        open={showDuplicateModal}
+        onCancel={() => {
+          setShowDuplicateModal(false);
+          setPendingSubmitData(null);
+          setDuplicateResults([]);
+          setExpandedSimilarityIndex(null);
+        }}
+        footer={null}
+        width={760}
+        closeIcon={<X size={18} />}
+        destroyOnClose
+      >
+        <div className="space-y-4">
+          <Alert
+            type="warning"
+            showIcon
+            icon={<AlertTriangle size={16} />}
+            message={`系统检测到 ${duplicateResults.length} 条疑似重复的投诉记录`}
+            description="为提高处理效率，建议您合并到已有投诉。您也可以选择继续创建新投诉。相似度越高的结果越靠前展示。"
+          />
+
+          <div className="max-h-[460px] overflow-y-auto pr-1">
+            <List
+              itemLayout="vertical"
+              dataSource={sortedResults}
+              renderItem={(item, index) => {
+                const level = getSimilarityLevel(item.similarity);
+                const color = getSimilarityColor(item.similarity);
+                const label = getSimilarityLabel(item.similarity);
+                const isExpanded = expandedSimilarityIndex === index;
+                const detailItems = getSimilarityDetailItems(item);
+                const isHighSimilarity = level === 'high';
+
+                return (
+                  <List.Item
+                    key={item.complaint.id}
+                    className={`rounded-lg mb-3 transition-all ${
+                      isHighSimilarity
+                        ? 'border-2 border-red-300 bg-red-50/40 shadow-sm'
+                        : 'border border-gray-200 hover:border-orange-300 hover:bg-orange-50/30'
+                    }`}
+                    style={{ padding: '16px', marginBottom: '12px' }}
+                  >
+                    <div className="w-full">
+                      <div className="flex items-start justify-between gap-3 mb-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            {isHighSimilarity && (
+                              <Tag color="red" className="m-0">
+                                推荐优先合并
+                              </Tag>
+                            )}
+                            <span className="font-medium text-gray-800 truncate">
+                              {item.complaint.title}
+                            </span>
+                            <Tag
+                              color={level === 'high' ? 'red' : level === 'medium' ? 'orange' : 'green'}
+                              className="m-0 flex-shrink-0"
+                            >
+                              {label}
+                            </Tag>
+                          </div>
+                          <div className="text-xs text-gray-500 flex items-center gap-2 flex-wrap">
+                            <span className="font-mono text-blue-600">{item.complaint.id}</span>
+                            <span>·</span>
+                            <span>{item.complaint.areaName}</span>
+                            <span>·</span>
+                            <span>{item.complaint.categoryName}</span>
+                            <span>·</span>
+                            <span>{item.complaint.createdAt}</span>
+                          </div>
+                        </div>
+                        <div className="flex-shrink-0 text-right">
+                          <div className="text-lg font-bold" style={{ color }}>
+                            {Math.round(item.similarity * 100)}%
+                          </div>
+                          <div className="text-xs text-gray-400">相似度</div>
+                        </div>
+                      </div>
+
+                      <div className="mb-3">
+                        <Progress
+                          percent={Math.round(item.similarity * 100)}
+                          strokeColor={color}
+                          size="small"
+                          showInfo={false}
+                        />
+                      </div>
+
+                      <div
+                        className="mb-3 p-3 bg-white/60 rounded-lg border border-gray-100"
+                      >
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            <Clock size={14} className="text-blue-500" />
+                            <span className="text-sm font-medium text-gray-700">
+                              当前办理状态
+                            </span>
+                          </div>
+                          <Tag color={statusColorMap[item.complaint.status]} className="m-0">
+                            {getStatusText(item.complaint.status)}
                           </Tag>
                         </div>
-                        <div className="text-xs text-gray-500 flex items-center gap-2 flex-wrap">
-                          <span className="font-mono text-blue-600">{item.complaint.id}</span>
-                          <span>·</span>
-                          <span>{item.complaint.areaName}</span>
-                          <span>·</span>
-                          <span>{item.complaint.categoryName}</span>
-                          <span>·</span>
-                          <span>{item.complaint.createdAt}</span>
-                        </div>
+                        <p className="text-xs text-gray-500 pl-6">
+                          {getStatusDescription(item.complaint.status)}
+                        </p>
                       </div>
-                      <div className="flex-shrink-0 text-right">
-                        <div className="text-lg font-bold" style={{ color }}>
-                          {Math.round(item.similarity * 100)}%
-                        </div>
-                        <div className="text-xs text-gray-400">相似度</div>
-                      </div>
-                    </div>
 
-                    <div className="mb-3">
-                      <Progress
-                        percent={Math.round(item.similarity * 100)}
-                        strokeColor={color}
-                        size="small"
-                        showInfo={false}
-                      />
-                    </div>
-
-                    <div className="flex flex-wrap gap-1 mb-3">
-                      {item.matchReasons.map((reason, idx) => (
-                        <Tag key={idx} color="blue" className="m-0 text-xs">
-                          {reason}
-                        </Tag>
-                      ))}
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                      <Tag color={statusColorMap[item.complaint.status]} className="m-0">
-                        {statusMap[item.complaint.status]}
-                      </Tag>
-                      <Button
-                        type="primary"
-                        size="small"
-                        icon={<GitMerge size={14} />}
-                        onClick={() => handleMergeToComplaint(item.complaint)}
+                      <div
+                        className="cursor-pointer"
+                        onClick={() => setExpandedSimilarityIndex(isExpanded ? null : index)}
                       >
-                        合并到此投诉
-                      </Button>
-                    </div>
-                  </div>
-                </List.Item>
-              );
-            }}
-          />
-        </div>
+                        <div className="flex items-center justify-between text-xs text-gray-500 mb-2">
+                          <span className="flex items-center gap-1">
+                            <Zap size={12} className="text-orange-400" />
+                            相似原因明细
+                          </span>
+                          <span className="text-blue-500 flex items-center gap-0.5">
+                            {isExpanded ? '收起' : '展开查看'}
+                            <ChevronRight
+                              size={12}
+                              className={`transition-transform ${isExpanded ? 'rotate-90' : ''}`}
+                            />
+                          </span>
+                        </div>
 
-        <div className="flex gap-3 pt-3 border-t border-gray-100">
-          <Button
-            block
-            icon={<Plus size={16} />}
-            onClick={handleContinueCreate}
-          >
-            继续创建新投诉
-          </Button>
-          <Button
-            type="primary"
-            block
-            icon={<GitMerge size={16} />}
-            onClick={() => {
-              if (duplicateResults.length > 0) {
-                handleMergeToComplaint(duplicateResults[0].complaint);
-              }
-            }}
-          >
-            合并到最高相似度投诉
-          </Button>
+                        <div className="flex flex-wrap gap-1">
+                          {item.matchReasons.slice(0, isExpanded ? undefined : 3).map((reason, idx) => (
+                            <Tag key={idx} color="blue" className="m-0 text-xs">
+                              {reason}
+                            </Tag>
+                          ))}
+                          {!isExpanded && item.matchReasons.length > 3 && (
+                            <Tag className="m-0 text-xs bg-gray-100 text-gray-500 border-gray-200">
+                              +{item.matchReasons.length - 3} 项
+                            </Tag>
+                          )}
+                        </div>
+
+                        {isExpanded && (
+                          <div className="mt-3 pt-3 border-t border-gray-100 space-y-3">
+                            <div className="text-xs text-gray-500 mb-1">
+                              各维度相似度得分（权重占比）
+                            </div>
+                            {detailItems.map((detail) => (
+                              <div key={detail.key} className="space-y-1">
+                                <div className="flex items-center justify-between text-xs">
+                                  <div className="flex items-center gap-2">
+                                    {detail.matched ? (
+                                      <CheckCircle size={12} className="text-green-500 flex-shrink-0" />
+                                    ) : (
+                                      <XCircle size={12} className="text-gray-300 flex-shrink-0" />
+                                    )}
+                                    <span className={detail.matched ? 'text-gray-700' : 'text-gray-400'}>
+                                      {detail.label}
+                                    </span>
+                                    {detail.detail && (
+                                      <span className="text-gray-400">（{detail.detail}）</span>
+                                    )}
+                                  </div>
+                                  <div className="text-right">
+                                    <span className="font-mono font-medium text-gray-600">
+                                      {Math.round(detail.score * 100)}%
+                                    </span>
+                                    {detail.weight > 0 && (
+                                      <span className="text-gray-400 ml-1">
+                                        / 权重 {Math.round(detail.weight * 100)}%
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                                {detail.weight > 0 && (
+                                  <div className="w-full bg-gray-100 rounded-full h-1.5">
+                                    <div
+                                      className="h-1.5 rounded-full transition-all"
+                                      style={{
+                                        width: `${detail.score * 100}%`,
+                                        backgroundColor: detail.matched
+                                          ? detail.score >= 0.6
+                                            ? '#ef4444'
+                                            : '#f97316'
+                                          : '#e5e7eb',
+                                      }}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                            <div className="pt-2 mt-2 border-t border-dashed border-gray-200">
+                              <div className="flex items-center justify-between text-xs">
+                                <span className="text-gray-500">综合相似度</span>
+                                <span className="font-bold text-orange-600">
+                                  {Math.round(item.similarity * 100)}%
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
+                        <div className="text-xs text-gray-500">
+                          投诉人：{item.complaint.contactName}
+                        </div>
+                        <Button
+                          type="primary"
+                          size="small"
+                          icon={<GitMerge size={14} />}
+                          onClick={() => handleMergeToComplaint(item.complaint)}
+                        >
+                          合并到此投诉
+                        </Button>
+                      </div>
+                    </div>
+                  </List.Item>
+                );
+              }}
+            />
+          </div>
+
+          <div className="flex gap-3 pt-3 border-t border-gray-100">
+            <Button
+              block
+              icon={<Plus size={16} />}
+              onClick={handleContinueCreate}
+            >
+              继续创建新投诉
+            </Button>
+            <Button
+              type="primary"
+              block
+              icon={<GitMerge size={16} />}
+              onClick={() => {
+                if (sortedResults.length > 0) {
+                  handleMergeToComplaint(sortedResults[0].complaint);
+                }
+              }}
+            >
+              合并到最高相似度投诉
+            </Button>
+          </div>
         </div>
-      </div>
-    </Modal>
-  );
+      </Modal>
+    );
+  };
 
   const QueryForm = () => (
     <div className="space-y-6">
@@ -740,6 +1065,17 @@ const PublicSubmit: React.FC = () => {
             </p>
           </div>
 
+          {queriedComplaint.isRepeat && queriedComplaint.repeatGroupId && (
+            <Alert
+              type="info"
+              showIcon
+              icon={<GitMerge size={18} className="text-blue-500" />}
+              message="重复投诉组"
+              description={`该投诉属于重复投诉组，当前组内共有 ${queriedComplaint.repeatCount || 2} 件投诉并案处理。`}
+              className="border-blue-200 bg-blue-50/50"
+            />
+          )}
+
           <Descriptions column={2} size="small" bordered>
             <Descriptions.Item label="事项分类">
               {queriedComplaint.categoryName}
@@ -759,6 +1095,15 @@ const PublicSubmit: React.FC = () => {
             <Descriptions.Item label="办理时限">
               {queriedComplaint.deadline}
             </Descriptions.Item>
+            {queriedComplaint.isRepeat && (
+              <Descriptions.Item label="重复投诉" span={2}>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Tag color="blue" icon={<GitMerge size={10} />}>
+                    组内共 {queriedComplaint.repeatCount || 2} 件
+                  </Tag>
+                </div>
+              </Descriptions.Item>
+            )}
           </Descriptions>
 
           <div>

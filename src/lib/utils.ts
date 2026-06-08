@@ -175,73 +175,128 @@ export const detectDuplicateComplaints = (
 
   const results: DuplicateComplaintResult[] = [];
 
+  const hasAddress = !!input.address;
+  const hasPhone = !!input.contactPhone;
+  const maxTotalWeight =
+    weights.title +
+    weights.category +
+    weights.area +
+    (hasAddress ? weights.address : 0) +
+    (hasPhone ? weights.phone : 0);
+
   for (const complaint of existingComplaints) {
     if (excludeId && complaint.id === excludeId) continue;
 
     const matchReasons: string[] = [];
+    const detailScores: Record<string, { score: number; weight: number; matched: boolean; label: string; detail?: string }> = {};
     let totalScore = 0;
-    let totalWeight = 0;
 
     const titleSim = combinedTextSimilarity(input.title, complaint.title);
-    if (titleSim >= 0.3) {
-      totalScore += titleSim * weights.title;
-      totalWeight += weights.title;
-      if (titleSim >= 0.6) {
-        matchReasons.push('标题高度相似');
-      } else if (titleSim >= 0.4) {
-        matchReasons.push('标题部分相似');
-      }
+    const titleScore = titleSim >= 0.3 ? titleSim * weights.title : 0;
+    totalScore += titleScore;
+    detailScores.title = {
+      score: titleSim,
+      weight: weights.title,
+      matched: titleSim >= 0.3,
+      label: '标题相似',
+      detail: titleSim >= 0.6 ? '标题高度相似' : titleSim >= 0.4 ? '标题部分相似' : undefined,
+    };
+    if (titleSim >= 0.6) {
+      matchReasons.push('标题高度相似');
+    } else if (titleSim >= 0.4) {
+      matchReasons.push('标题部分相似');
     }
 
+    let categoryScore = 0;
+    let categoryDetail = '';
     if (input.categoryId === complaint.categoryId) {
-      totalScore += weights.category;
-      totalWeight += weights.category;
+      categoryScore = weights.category;
+      categoryDetail = '分类相同';
       matchReasons.push('分类相同');
     } else {
-      const parentCat1 = categories.find(c => c.id === input.categoryId)?.parentId;
-      const parentCat2 = categories.find(c => c.id === complaint.categoryId)?.parentId;
+      const parentCat1 = categories.find((c) => c.id === input.categoryId)?.parentId;
+      const parentCat2 = categories.find((c) => c.id === complaint.categoryId)?.parentId;
       if (parentCat1 && parentCat2 && parentCat1 === parentCat2) {
-        totalScore += weights.category * 0.5;
-        totalWeight += weights.category;
+        categoryScore = weights.category * 0.5;
+        categoryDetail = '同类大分类';
         matchReasons.push('同类大分类');
       }
     }
+    totalScore += categoryScore;
+    detailScores.category = {
+      score: categoryScore / weights.category,
+      weight: weights.category,
+      matched: categoryScore > 0,
+      label: '分类匹配',
+      detail: categoryDetail || undefined,
+    };
 
-    if (input.areaId === complaint.areaId) {
-      totalScore += weights.area;
-      totalWeight += weights.area;
+    const areaMatch = input.areaId === complaint.areaId;
+    const areaScore = areaMatch ? weights.area : 0;
+    totalScore += areaScore;
+    detailScores.area = {
+      score: areaMatch ? 1 : 0,
+      weight: weights.area,
+      matched: areaMatch,
+      label: '区域相同',
+    };
+    if (areaMatch) {
       matchReasons.push('区域相同');
     }
 
+    let addrScore = 0;
+    let addrSim = 0;
+    let addrDetail = '';
     if (input.address && complaint.address) {
-      const addrSim = combinedTextSimilarity(input.address, complaint.address);
+      addrSim = combinedTextSimilarity(input.address, complaint.address);
       if (addrSim >= 0.3) {
-        totalScore += addrSim * weights.address;
-        totalWeight += weights.address;
+        addrScore = addrSim * weights.address;
         if (addrSim >= 0.7) {
+          addrDetail = '地址高度相似';
           matchReasons.push('地址高度相似');
         } else if (addrSim >= 0.5) {
+          addrDetail = '地址部分相似';
           matchReasons.push('地址部分相似');
         }
       }
     }
+    totalScore += addrScore;
+    detailScores.address = {
+      score: addrSim,
+      weight: weights.address,
+      matched: addrScore > 0,
+      label: '地址相似',
+      detail: addrDetail || undefined,
+    };
 
-    if (input.contactPhone && complaint.contactPhone) {
-      const phoneMatch = input.contactPhone === complaint.contactPhone;
-      if (phoneMatch) {
-        totalScore += weights.phone;
-        totalWeight += weights.phone;
-        matchReasons.push('联系电话相同');
-      }
+    let phoneScore = 0;
+    const phoneMatch = !!(input.contactPhone && complaint.contactPhone && input.contactPhone === complaint.contactPhone);
+    if (phoneMatch) {
+      phoneScore = weights.phone;
+      matchReasons.push('联系电话相同');
     }
+    totalScore += phoneScore;
+    detailScores.phone = {
+      score: phoneMatch ? 1 : 0,
+      weight: weights.phone,
+      matched: phoneMatch,
+      label: '联系电话相同',
+    };
 
-    const similarity = totalWeight > 0 ? totalScore / totalWeight : 0;
+    const similarity = totalScore / maxTotalWeight;
 
     if (similarity >= threshold) {
       results.push({
         complaint,
         similarity: Math.round(similarity * 100) / 100,
         matchReasons,
+        detailScores: {
+          title: detailScores.title,
+          category: detailScores.category,
+          area: detailScores.area,
+          address: detailScores.address,
+          phone: detailScores.phone,
+        },
       });
     }
   }
