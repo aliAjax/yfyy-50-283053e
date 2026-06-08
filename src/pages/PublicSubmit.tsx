@@ -933,10 +933,7 @@ const PublicSubmit: React.FC = () => {
                         )}
                       </div>
 
-                      <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100">
-                        <div className="text-xs text-gray-500">
-                          投诉人：{item.complaint.contactName}
-                        </div>
+                      <div className="flex items-center justify-end mt-3 pt-3 border-t border-gray-100">
                         <Button
                           type="primary"
                           size="small"
