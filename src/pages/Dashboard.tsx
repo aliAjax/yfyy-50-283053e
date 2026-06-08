@@ -1,4 +1,4 @@
-import { Card, Row, Col, List, Tag } from 'antd';
+import { Card, Row, Col, List, Tag, Button } from 'antd';
 import ReactECharts from 'echarts-for-react';
 import {
   FileText,
@@ -11,12 +11,32 @@ import {
   MapPin,
   Repeat,
 } from 'lucide-react';
+import dayjs from 'dayjs';
+import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '@/store/appStore';
+import { areas } from '@/data/dictionaries';
 
 const Dashboard: React.FC = () => {
-  const { dashboardStats } = useAppStore();
+  const navigate = useNavigate();
+  const { dashboardStats, complaints, extensionRequests } = useAppStore();
 
   if (!dashboardStats) return null;
+
+  const openComplaints = complaints.filter((complaint) => complaint.status !== 'completed');
+  const expiringCount = openComplaints.filter((complaint) => {
+    const remainingHours = dayjs(complaint.deadline).diff(dayjs(), 'hour');
+    return remainingHours >= 0 && remainingHours <= 72;
+  }).length;
+  const overdueCount = openComplaints.filter(
+    (complaint) => dayjs().isAfter(dayjs(complaint.deadline)) || complaint.status === 'overdue'
+  ).length;
+  const multiUrgeCount = openComplaints.filter((complaint) => (complaint.urgeCount || 0) >= 2).length;
+  const delayPendingCount = extensionRequests.filter((request) => request.status === 'pending').length;
+
+  const navigateWarningCenter = (params: Record<string, string>) => {
+    const searchParams = new URLSearchParams(params);
+    navigate(`/warning-center?${searchParams.toString()}`);
+  };
 
   const statCards = [
     {
@@ -284,6 +304,66 @@ const Dashboard: React.FC = () => {
         ))}
       </Row>
 
+      <Card
+        title={<span className="font-semibold">时限预警概览</span>}
+        className="shadow-sm border-0"
+      >
+        <Row gutter={[16, 16]}>
+          <Col xs={24} sm={12} lg={6}>
+            <button
+              type="button"
+              className="w-full text-left rounded-lg border border-amber-100 bg-amber-50 p-4 hover:border-amber-300 transition-colors"
+              onClick={() => navigateWarningCenter({ tab: 'expiring', timeRange: '3days' })}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-600">即将到期</span>
+                <Clock size={18} className="text-amber-600" />
+              </div>
+              <div className="mt-2 text-2xl font-semibold text-gray-900">{expiringCount}</div>
+            </button>
+          </Col>
+          <Col xs={24} sm={12} lg={6}>
+            <button
+              type="button"
+              className="w-full text-left rounded-lg border border-red-100 bg-red-50 p-4 hover:border-red-300 transition-colors"
+              onClick={() => navigateWarningCenter({ tab: 'overdue', riskLevel: 'high' })}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-600">已超期</span>
+                <AlertTriangle size={18} className="text-red-600" />
+              </div>
+              <div className="mt-2 text-2xl font-semibold text-gray-900">{overdueCount}</div>
+            </button>
+          </Col>
+          <Col xs={24} sm={12} lg={6}>
+            <button
+              type="button"
+              className="w-full text-left rounded-lg border border-orange-100 bg-orange-50 p-4 hover:border-orange-300 transition-colors"
+              onClick={() => navigateWarningCenter({ tab: 'multiUrge', riskLevel: 'high' })}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-600">多次催办</span>
+                <Repeat size={18} className="text-orange-600" />
+              </div>
+              <div className="mt-2 text-2xl font-semibold text-gray-900">{multiUrgeCount}</div>
+            </button>
+          </Col>
+          <Col xs={24} sm={12} lg={6}>
+            <button
+              type="button"
+              className="w-full text-left rounded-lg border border-purple-100 bg-purple-50 p-4 hover:border-purple-300 transition-colors"
+              onClick={() => navigateWarningCenter({ tab: 'delayPending' })}
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-600">延期待审批</span>
+                <Timer size={18} className="text-purple-600" />
+              </div>
+              <div className="mt-2 text-2xl font-semibold text-gray-900">{delayPendingCount}</div>
+            </button>
+          </Col>
+        </Row>
+      </Card>
+
       <Row gutter={[16, 16]}>
         <Col xs={24} lg={16}>
           <Card
@@ -326,7 +406,17 @@ const Dashboard: React.FC = () => {
               dataSource={dashboardStats.areaRank}
               renderItem={(item, index) => (
                 <List.Item className="px-0 py-2">
-                  <div className="flex items-center w-full">
+                  <button
+                    type="button"
+                    className="flex items-center w-full text-left rounded-md px-1 py-1 hover:bg-blue-50 transition-colors"
+                    onClick={() => {
+                      const area = areas.find((current) => current.name === item.name);
+                      navigateWarningCenter({
+                        tab: 'overdue',
+                        ...(area ? { areaId: area.id } : {}),
+                      });
+                    }}
+                  >
                     <span
                       className={`w-6 h-6 rounded-md flex items-center justify-center text-xs font-bold mr-3 ${
                         index < 3
@@ -338,7 +428,7 @@ const Dashboard: React.FC = () => {
                     </span>
                     <span className="flex-1 text-gray-700">{item.name}</span>
                     <span className="text-blue-600 font-semibold">{item.count}件</span>
-                  </div>
+                  </button>
                 </List.Item>
               )}
             />
@@ -358,7 +448,18 @@ const Dashboard: React.FC = () => {
               dataSource={dashboardStats.repeatTop}
               renderItem={(item) => (
                 <List.Item className="px-0 py-2">
-                  <div className="w-full">
+                  <button
+                    type="button"
+                    className="w-full text-left rounded-md px-1 py-1 hover:bg-orange-50 transition-colors"
+                    onClick={() => {
+                      const area = areas.find((current) => current.name === item.area);
+                      navigateWarningCenter({
+                        tab: 'multiUrge',
+                        riskLevel: 'high',
+                        ...(area ? { areaId: area.id } : {}),
+                      });
+                    }}
+                  >
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-gray-700 text-sm truncate flex-1 mr-2">
                         {item.title}
@@ -368,13 +469,19 @@ const Dashboard: React.FC = () => {
                       </Tag>
                     </div>
                     <span className="text-xs text-gray-400">{item.area}</span>
-                  </div>
+                  </button>
                 </List.Item>
               )}
             />
           </Card>
         </Col>
       </Row>
+
+      <div className="flex justify-end">
+        <Button type="link" onClick={() => navigate('/warning-center')}>
+          进入时限预警中心
+        </Button>
+      </div>
     </div>
   );
 };

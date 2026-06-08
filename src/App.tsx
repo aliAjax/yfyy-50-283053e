@@ -10,6 +10,7 @@ import BatchImport from '@/pages/BatchImport';
 import DispatchRules from '@/pages/DispatchRules';
 import MyTasks from '@/pages/MyTasks';
 import Supervision from '@/pages/Supervision';
+import WarningCenter from '@/pages/WarningCenter';
 import Statistics from '@/pages/Statistics';
 import NotificationCenter from '@/pages/NotificationCenter';
 import KnowledgeBase from '@/pages/KnowledgeBase';
@@ -127,6 +128,16 @@ export default function App() {
               <ProtectedRoute>
                 <MainLayout>
                   <Supervision />
+                </MainLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/warning-center"
+            element={
+              <ProtectedRoute>
+                <MainLayout>
+                  <WarningCenter />
                 </MainLayout>
               </ProtectedRoute>
             }

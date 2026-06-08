@@ -13,6 +13,7 @@ import {
   BookOpen,
   Building2,
   Route,
+  Siren,
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAppStore } from '@/store/appStore';
@@ -51,6 +52,11 @@ const menuItems = [
     label: '督办管理',
   },
   {
+    key: '/warning-center',
+    icon: <Siren size={18} />,
+    label: '时限预警中心',
+  },
+  {
     key: '/statistics',
     icon: <BarChart3 size={18} />,
     label: '统计分析',
@@ -74,6 +80,7 @@ const titleMap: Record<string, string> = {
   '/dispatch-rules': '智能派单规则配置',
   '/my-tasks': '待办事项',
   '/supervision': '督办管理',
+  '/warning-center': '时限预警中心',
   '/statistics': '统计分析',
   '/knowledge-base': '知识库管理',
   '/department-directory': '责任单位通讯录',
