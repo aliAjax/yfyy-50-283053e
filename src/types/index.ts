@@ -253,6 +253,23 @@ export interface SimulationState {
   startTimestamp: string;
 }
 
+export interface ComplaintListFilters {
+  keyword: string;
+  source?: ComplaintSource;
+  status?: ComplaintStatus;
+  categoryId?: string;
+  areaId?: string;
+  departmentId?: string;
+  isRepeat?: boolean;
+}
+
+export interface FilterView {
+  id: string;
+  name: string;
+  filters: ComplaintListFilters;
+  createdAt: string;
+}
+
 export type KnowledgeStatus = 'active' | 'disabled';
 
 export interface KnowledgeEntry {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Table,
   Button,
@@ -31,12 +31,14 @@ import {
   GitMerge,
   AlertTriangle,
   X,
+  Save,
+  LayoutGrid,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { useAppStore } from '@/store/appStore';
-import type { Complaint, ComplaintSource, ComplaintStatus, TimelineRecord, Department, AssignSource, DuplicateComplaintResult } from '@/types';
+import type { Complaint, ComplaintSource, ComplaintStatus, TimelineRecord, Department, AssignSource, DuplicateComplaintResult, FilterView, ComplaintListFilters } from '@/types';
 import { StatusTag, SourceTag, SatisfactionTag } from '@/components/StatusTags';
 import { categories, areas, departments, statusMap, sourceMap, assignSourceMap, statusColorMap } from '@/data/dictionaries';
 import type { DispatchMatchResult } from '@/lib/utils';
@@ -44,7 +46,7 @@ import { getSimilarityColor, getSimilarityLabel, getSimilarityLevel } from '@/li
 
 const ComplaintList: React.FC = () => {
   const navigate = useNavigate();
-  const { complaints, updateComplaint, addTimeline, addComplaint, matchDispatch, detectDuplicates, mergeComplaint } = useAppStore();
+  const { complaints, updateComplaint, addTimeline, addComplaint, matchDispatch, detectDuplicates, mergeComplaint, filterViews, addFilterView, deleteFilterView } = useAppStore();
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [form] = Form.useForm();
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
@@ -61,15 +63,19 @@ const ComplaintList: React.FC = () => {
   const [pendingSubmitData, setPendingSubmitData] = useState<any>(null);
   const [checkingDuplicates, setCheckingDuplicates] = useState(false);
 
-  const [filters, setFilters] = useState({
+  const [filters, setFilters] = useState<ComplaintListFilters>({
     keyword: '',
-    source: undefined as ComplaintSource | undefined,
-    status: undefined as ComplaintStatus | undefined,
+    source: undefined,
+    status: undefined,
     categoryId: undefined,
     areaId: undefined,
     departmentId: undefined,
-    isRepeat: undefined as boolean | undefined,
+    isRepeat: undefined,
   });
+  const [saveViewModalVisible, setSaveViewModalVisible] = useState(false);
+  const [viewNameInput, setViewNameInput] = useState('');
+  const [activeViewId, setActiveViewId] = useState<string | null>(null);
+  const isViewSwitching = useRef(false);
 
   const filteredComplaints = complaints.filter((c) => {
     if (filters.keyword && !c.title.includes(filters.keyword) && !c.id.includes(filters.keyword)) {
@@ -273,9 +279,55 @@ const ComplaintList: React.FC = () => {
       departmentId: undefined,
       isRepeat: undefined,
     });
+    setActiveViewId(null);
+  };
+
+  const handleSaveView = () => {
+    if (!viewNameInput.trim()) {
+      message.warning('请输入视图名称');
+      return;
+    }
+    addFilterView(viewNameInput.trim(), filters);
+    message.success('视图保存成功');
+    setSaveViewModalVisible(false);
+    setViewNameInput('');
+  };
+
+  const handleSwitchView = (view: FilterView) => {
+    isViewSwitching.current = true;
+    setFilters({ ...view.filters });
+    setActiveViewId(view.id);
+    setTimeout(() => {
+      isViewSwitching.current = false;
+    }, 0);
+  };
+
+  const handleDeleteView = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    Modal.confirm({
+      title: '确认删除视图',
+      content: '确定要删除该筛选视图吗？',
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: () => {
+        deleteFilterView(id);
+        if (activeViewId === id) {
+          setActiveViewId(null);
+        }
+        message.success('视图已删除');
+      },
+    });
   };
 
   const parentCategories = categories.filter((c) => !c.parentId);
+
+  useEffect(() => {
+    if (!isViewSwitching.current && activeViewId) {
+      setActiveViewId(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.keyword, filters.source, filters.status, filters.categoryId, filters.areaId, filters.departmentId, filters.isRepeat]);
 
   useEffect(() => {
     if (selectedCategoryId && selectedAreaId) {
@@ -517,80 +569,173 @@ const ComplaintList: React.FC = () => {
     }
   };
 
+  const activeView = filterViews.find((v) => v.id === activeViewId);
+
+  const hasActiveFilters =
+    filters.keyword ||
+    filters.source ||
+    filters.status ||
+    filters.categoryId ||
+    filters.areaId ||
+    filters.departmentId ||
+    filters.isRepeat !== undefined;
+
   return (
     <div className="space-y-4">
-      <div className="bg-white rounded-lg p-4 shadow-sm">
-        <Row gutter={[16, 16]} align="middle">
-          <Col span={6}>
-            <Input
-              placeholder="搜索投诉编号或标题"
-              prefix={<Search size={16} className="text-gray-400" />}
-              value={filters.keyword}
-              onChange={(e) => setFilters({ ...filters, keyword: e.target.value })}
-              allowClear
-            />
-          </Col>
-          <Col span={3}>
-            <Select
-              placeholder="来源"
-              allowClear
-              style={{ width: '100%' }}
-              value={filters.source}
-              onChange={(val) => setFilters({ ...filters, source: val })}
-              options={Object.entries(sourceMap).map(([value, label]) => ({ label, value }))}
-            />
-          </Col>
-          <Col span={3}>
-            <Select
-              placeholder="状态"
-              allowClear
-              style={{ width: '100%' }}
-              value={filters.status}
-              onChange={(val) => setFilters({ ...filters, status: val })}
-              options={Object.entries(statusMap).map(([value, label]) => ({ label, value }))}
-            />
-          </Col>
-          <Col span={3}>
-            <Select
-              placeholder="分类"
-              allowClear
-              style={{ width: '100%' }}
-              value={filters.categoryId}
-              onChange={(val) => setFilters({ ...filters, categoryId: val })}
-              options={parentCategories.map((c) => ({ label: c.name, value: c.id }))}
-            />
-          </Col>
-          <Col span={3}>
-            <Select
-              placeholder="区域"
-              allowClear
-              style={{ width: '100%' }}
-              value={filters.areaId}
-              onChange={(val) => setFilters({ ...filters, areaId: val })}
-              options={areas.map((a) => ({ label: a.name, value: a.id }))}
-            />
-          </Col>
-          <Col span={3}>
-            <Select
-              placeholder="重复投诉"
-              allowClear
-              style={{ width: '100%' }}
-              value={filters.isRepeat}
-              onChange={(val) => setFilters({ ...filters, isRepeat: val })}
-              options={[
-                { label: '是', value: true },
-                { label: '否', value: false },
-              ]}
-            />
-          </Col>
-          <Col span={2}>
-            <Space>
-              <Button icon={<Filter size={16} />} onClick={resetFilters}>
-                重置
-              </Button>
-            </Space>
-          </Col>
-        </Row>
+      <div className="bg-white rounded-lg shadow-sm">
+        <div className="px-4 pt-3 pb-2 border-b border-gray-100">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-1.5 text-gray-600 mr-2">
+                <LayoutGrid size={15} />
+                <span className="text-sm font-medium">常用视图</span>
+              </div>
+              <div
+                className={`px-3 py-1.5 rounded-md text-sm cursor-pointer transition-colors ${
+                  !activeViewId
+                    ? 'bg-blue-500 text-white font-medium'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
+                onClick={resetFilters}
+              >
+                全部
+              </div>
+              {filterViews.map((view) => (
+                <div
+                  key={view.id}
+                  className={`group relative px-3 py-1.5 rounded-md text-sm cursor-pointer transition-colors flex items-center gap-1.5 ${
+                    activeViewId === view.id
+                      ? 'bg-blue-500 text-white font-medium'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                  onClick={() => handleSwitchView(view)}
+                >
+                  <span className="max-w-[120px] truncate">{view.name}</span>
+                  <button
+                    className={`opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0 rounded-full w-4 h-4 flex items-center justify-center ${
+                      activeViewId === view.id
+                        ? 'hover:bg-white/20 text-white/80 hover:text-white'
+                        : 'hover:bg-gray-300 text-gray-400 hover:text-red-500'
+                    }`}
+                    onClick={(e) => handleDeleteView(view.id, e)}
+                    title="删除视图"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <Button
+              size="small"
+              type="default"
+              icon={<Save size={14} />}
+              onClick={() => {
+                setViewNameInput('');
+                setSaveViewModalVisible(true);
+              }}
+            >
+              保存视图
+            </Button>
+          </div>
+          {activeView && (
+            <div className="mt-2 flex items-center gap-2">
+              <span className="text-xs text-gray-400">当前视图：</span>
+              <span className="text-xs text-blue-600 font-medium">{activeView.name}</span>
+            </div>
+          )}
+        </div>
+        <div className="p-4 space-y-3">
+          <Row gutter={[16, 12]} align="middle">
+            <Col span={8}>
+              <Input
+                placeholder="搜索投诉编号或标题"
+                prefix={<Search size={16} className="text-gray-400" />}
+                value={filters.keyword}
+                onChange={(e) => setFilters({ ...filters, keyword: e.target.value })}
+                allowClear
+              />
+            </Col>
+            <Col span={4}>
+              <Select
+                placeholder="来源"
+                allowClear
+                style={{ width: '100%' }}
+                value={filters.source}
+                onChange={(val) => setFilters({ ...filters, source: val })}
+                options={Object.entries(sourceMap).map(([value, label]) => ({ label, value }))}
+              />
+            </Col>
+            <Col span={4}>
+              <Select
+                placeholder="状态"
+                allowClear
+                style={{ width: '100%' }}
+                value={filters.status}
+                onChange={(val) => setFilters({ ...filters, status: val })}
+                options={Object.entries(statusMap).map(([value, label]) => ({ label, value }))}
+              />
+            </Col>
+            <Col span={4}>
+              <Select
+                placeholder="分类"
+                allowClear
+                style={{ width: '100%' }}
+                value={filters.categoryId}
+                onChange={(val) => setFilters({ ...filters, categoryId: val })}
+                options={parentCategories.map((c) => ({ label: c.name, value: c.id }))}
+              />
+            </Col>
+            <Col span={4}>
+              <Select
+                placeholder="区域"
+                allowClear
+                style={{ width: '100%' }}
+                value={filters.areaId}
+                onChange={(val) => setFilters({ ...filters, areaId: val })}
+                options={areas.map((a) => ({ label: a.name, value: a.id }))}
+              />
+            </Col>
+          </Row>
+          <Row gutter={[16, 12]} align="middle">
+            <Col span={6}>
+              <Select
+                placeholder="责任单位"
+                allowClear
+                showSearch
+                optionFilterProp="children"
+                style={{ width: '100%' }}
+                value={filters.departmentId}
+                onChange={(val) => setFilters({ ...filters, departmentId: val })}
+                options={departments.map((d) => ({ label: d.name, value: d.id }))}
+              />
+            </Col>
+            <Col span={4}>
+              <Select
+                placeholder="重复投诉"
+                allowClear
+                style={{ width: '100%' }}
+                value={filters.isRepeat}
+                onChange={(val) => setFilters({ ...filters, isRepeat: val })}
+                options={[
+                  { label: '是', value: true },
+                  { label: '否', value: false },
+                ]}
+              />
+            </Col>
+            <Col span={14}>
+              <Space className="w-full justify-end">
+                {hasActiveFilters && (
+                  <span className="text-xs text-gray-400">
+                    已选择 {Object.values(filters).filter((v) => v !== undefined && v !== '').length} 个筛选条件
+                  </span>
+                )}
+                <Button icon={<Filter size={14} />} size="small" onClick={resetFilters}>
+                  重置筛选
+                </Button>
+              </Space>
+            </Col>
+          </Row>
+        </div>
       </div>
 
       <div className="bg-white rounded-lg shadow-sm">
@@ -1117,6 +1262,66 @@ const ComplaintList: React.FC = () => {
           ) : (
             <Empty description="未检测到疑似重复的投诉" />
           )}
+        </div>
+      </Modal>
+
+      <Modal
+        title="保存筛选视图"
+        open={saveViewModalVisible}
+        onOk={handleSaveView}
+        onCancel={() => setSaveViewModalVisible(false)}
+        okText="保存"
+        cancelText="取消"
+        width={420}
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              视图名称
+            </label>
+            <Input
+              placeholder="请输入视图名称"
+              value={viewNameInput}
+              onChange={(e) => setViewNameInput(e.target.value)}
+              maxLength={20}
+              autoFocus
+            />
+          </div>
+          <div className="bg-gray-50 rounded-lg p-3">
+            <div className="text-xs text-gray-500 mb-2">当前筛选条件：</div>
+            <div className="flex flex-wrap gap-2">
+              {filters.keyword && (
+                <Tag color="blue">关键词: {filters.keyword}</Tag>
+              )}
+              {filters.source && (
+                <Tag color="green">来源: {sourceMap[filters.source]}</Tag>
+              )}
+              {filters.status && (
+                <Tag color="orange">状态: {statusMap[filters.status]}</Tag>
+              )}
+              {filters.categoryId && (
+                <Tag color="purple">
+                  分类: {categories.find((c) => c.id === filters.categoryId)?.name}
+                </Tag>
+              )}
+              {filters.areaId && (
+                <Tag color="cyan">
+                  区域: {areas.find((a) => a.id === filters.areaId)?.name}
+                </Tag>
+              )}
+              {filters.departmentId && (
+                <Tag color="magenta">
+                  责任单位: {departments.find((d) => d.id === filters.departmentId)?.name}
+                </Tag>
+              )}
+              {filters.isRepeat !== undefined && (
+                <Tag color="pink">重复投诉: {filters.isRepeat ? '是' : '否'}</Tag>
+              )}
+              {!filters.keyword && !filters.source && !filters.status && !filters.categoryId && !filters.areaId && !filters.departmentId && filters.isRepeat === undefined && (
+                <span className="text-sm text-gray-400">无筛选条件</span>
+              )}
+            </div>
+          </div>
         </div>
       </Modal>
     </div>

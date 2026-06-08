@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import dayjs from 'dayjs';
-import type { Complaint, User, DashboardStats, ExtensionRequest, TimelineRecord, Notification, KnowledgeEntry, DispatchRule, DuplicateComplaintResult, DuplicateDetectionInput } from '@/types';
+import type { Complaint, User, DashboardStats, ExtensionRequest, TimelineRecord, Notification, KnowledgeEntry, DispatchRule, DuplicateComplaintResult, DuplicateDetectionInput, FilterView, ComplaintListFilters } from '@/types';
 import { generateComplaints, generateDashboardStats, generateExtensionRequests, generateNotifications, generateKnowledgeEntries, generateDispatchRules } from '@/data/mockData';
 import { matchDispatchRule, detectDuplicateComplaints } from '@/lib/utils';
 
@@ -59,6 +59,10 @@ interface AppState {
   mergeComplaint: (sourceId: string, targetId: string, operator?: string) => void;
   getRepeatGroup: (groupId: string) => Complaint[];
   batchUrge: (complaintIds: string[], content?: string) => void;
+  filterViews: FilterView[];
+  addFilterView: (name: string, filters: ComplaintListFilters) => void;
+  deleteFilterView: (id: string) => void;
+  updateFilterView: (id: string, updates: Partial<FilterView>) => void;
 }
 
 const initialComplaints = generateComplaints(60);
@@ -67,6 +71,50 @@ const initialExtensions = generateExtensionRequests(initialComplaints);
 const initialNotifications = generateNotifications(initialComplaints, initialExtensions);
 const initialKnowledgeEntries = generateKnowledgeEntries();
 const initialDispatchRules = generateDispatchRules();
+const initialFilterViews: FilterView[] = [
+  {
+    id: 'FV001',
+    name: '待处理投诉',
+    filters: {
+      keyword: '',
+      status: 'processing',
+      source: undefined,
+      categoryId: undefined,
+      areaId: undefined,
+      departmentId: undefined,
+      isRepeat: undefined,
+    },
+    createdAt: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+  },
+  {
+    id: 'FV002',
+    name: '超期投诉',
+    filters: {
+      keyword: '',
+      status: 'overdue',
+      source: undefined,
+      categoryId: undefined,
+      areaId: undefined,
+      departmentId: undefined,
+      isRepeat: undefined,
+    },
+    createdAt: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+  },
+  {
+    id: 'FV003',
+    name: '重复投诉',
+    filters: {
+      keyword: '',
+      source: undefined,
+      status: undefined,
+      categoryId: undefined,
+      areaId: undefined,
+      departmentId: undefined,
+      isRepeat: true,
+    },
+    createdAt: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+  },
+];
 
 export const useAppStore = create<AppState>((set, get) => ({
   user: null,
@@ -76,6 +124,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   notifications: initialNotifications,
   knowledgeEntries: initialKnowledgeEntries,
   dispatchRules: initialDispatchRules,
+  filterViews: initialFilterViews,
 
   setUser: (user) => set({ user }),
 
@@ -572,5 +621,37 @@ export const useAppStore = create<AppState>((set, get) => ({
         });
       }
     });
+  },
+
+  addFilterView: (name, filters) => {
+    const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    const maxId = get().filterViews.reduce((max, v) => {
+      const num = parseInt(v.id.replace('FV', ''), 10);
+      return num > max ? num : max;
+    }, 0);
+    const newId = `FV${String(maxId + 1).padStart(3, '0')}`;
+    const newView: FilterView = {
+      id: newId,
+      name,
+      filters: { ...filters },
+      createdAt: now,
+    };
+    set((state) => ({
+      filterViews: [...state.filterViews, newView],
+    }));
+  },
+
+  deleteFilterView: (id) => {
+    set((state) => ({
+      filterViews: state.filterViews.filter((v) => v.id !== id),
+    }));
+  },
+
+  updateFilterView: (id, updates) => {
+    set((state) => ({
+      filterViews: state.filterViews.map((v) =>
+        v.id === id ? { ...v, ...updates } : v
+      ),
+    }));
   },
 }));
