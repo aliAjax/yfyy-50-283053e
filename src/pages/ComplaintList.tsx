@@ -313,7 +313,7 @@ const ComplaintList: React.FC = () => {
       onOk: () => {
         deleteFilterView(id);
         if (activeViewId === id) {
-          setActiveViewId(null);
+          resetFilters();
         }
         message.success('视图已删除');
       },
