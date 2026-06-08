@@ -134,6 +134,7 @@ const ComplaintDetail: React.FC = () => {
   const [processModalVisible, setProcessModalVisible] = useState(false);
   const [knowledgeKeyword, setKnowledgeKeyword] = useState('');
   const [previewKnowledge, setPreviewKnowledge] = useState<KnowledgeEntry | null>(null);
+  const [selectedTransferDepartmentId, setSelectedTransferDepartmentId] = useState<string | undefined>();
   const [form] = Form.useForm();
 
   if (!complaint) {
@@ -164,6 +165,7 @@ const ComplaintDetail: React.FC = () => {
     });
     message.success('转办成功');
     setTransferModalVisible(false);
+    setSelectedTransferDepartmentId(undefined);
     form.resetFields();
   };
 
@@ -306,6 +308,9 @@ const ComplaintDetail: React.FC = () => {
   };
 
   const isOverdue = dayjs().isAfter(dayjs(complaint.deadline)) && complaint.status !== 'completed';
+  const selectedTransferDepartment = departments.find(
+    (department) => department.id === selectedTransferDepartmentId
+  );
 
   return (
     <div className="space-y-4">
@@ -459,9 +464,12 @@ const ComplaintDetail: React.FC = () => {
       <Modal
         title="转办工单"
         open={transferModalVisible}
-        onCancel={() => setTransferModalVisible(false)}
+        onCancel={() => {
+          setTransferModalVisible(false);
+          setSelectedTransferDepartmentId(undefined);
+        }}
         footer={null}
-        width={520}
+        width={680}
       >
         <Form form={form} layout="vertical" onFinish={handleTransfer}>
           <Form.Item
@@ -469,14 +477,45 @@ const ComplaintDetail: React.FC = () => {
             name="departmentId"
             rules={[{ required: true, message: '请选择责任单位' }]}
           >
-            <Select placeholder="请选择责任单位">
+            <Select
+              placeholder="请选择责任单位"
+              onChange={(value) => setSelectedTransferDepartmentId(value)}
+              optionLabelProp="label"
+            >
               {departments.map((d) => (
-                <Select.Option key={d.id} value={d.id}>
-                  {d.name}
+                <Select.Option key={d.id} value={d.id} label={d.name}>
+                  <div className="py-1">
+                    <div className="font-medium">{d.name}</div>
+                    <div className="text-xs text-gray-500">
+                      {d.type} · {d.contactName} · {d.contactPhone}
+                    </div>
+                  </div>
                 </Select.Option>
               ))}
             </Select>
           </Form.Item>
+          {selectedTransferDepartment && (
+            <div className="mb-4 rounded-lg border border-blue-100 bg-blue-50/40 p-3">
+              <Descriptions column={2} size="small">
+                <Descriptions.Item label="单位类型">
+                  <Tag color="geekblue">{selectedTransferDepartment.type}</Tag>
+                </Descriptions.Item>
+                <Descriptions.Item label="联系人">
+                  {selectedTransferDepartment.contactName}
+                </Descriptions.Item>
+                <Descriptions.Item label="电话">
+                  <span className="font-mono">{selectedTransferDepartment.contactPhone}</span>
+                </Descriptions.Item>
+                <Descriptions.Item label="负责事项" span={2}>
+                  <Space size={[0, 4]} wrap>
+                    {selectedTransferDepartment.responsibilities.map((item) => (
+                      <Tag key={item}>{item}</Tag>
+                    ))}
+                  </Space>
+                </Descriptions.Item>
+              </Descriptions>
+            </div>
+          )}
           <Form.Item
             label="转办原因"
             name="reason"
@@ -489,7 +528,14 @@ const ComplaintDetail: React.FC = () => {
               <Button type="primary" htmlType="submit">
                 确认转办
               </Button>
-              <Button onClick={() => setTransferModalVisible(false)}>取消</Button>
+              <Button
+                onClick={() => {
+                  setTransferModalVisible(false);
+                  setSelectedTransferDepartmentId(undefined);
+                }}
+              >
+                取消
+              </Button>
             </Space>
           </Form.Item>
         </Form>

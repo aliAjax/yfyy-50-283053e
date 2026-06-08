@@ -34,14 +34,70 @@ export const areas: Area[] = [
 ];
 
 export const departments: Department[] = [
-  { id: 'd1', name: '城市管理委员会', type: '综合部门' },
-  { id: 'd2', name: '交通运输局', type: '专业部门' },
-  { id: 'd3', name: '生态环境局', type: '专业部门' },
-  { id: 'd4', name: '住房和城乡建设局', type: '专业部门' },
-  { id: 'd5', name: '园林绿化局', type: '专业部门' },
-  { id: 'd6', name: '水务局', type: '专业部门' },
-  { id: 'd7', name: '市场监督管理局', type: '综合部门' },
-  { id: 'd8', name: '公安局交通管理局', type: '执法部门' },
+  {
+    id: 'd1',
+    name: '城市管理委员会',
+    type: '综合部门',
+    contactName: '张明',
+    contactPhone: '010-86570001',
+    responsibilities: ['市容环境整治', '占道经营处置', '违法建设协调', '城市运行综合治理'],
+  },
+  {
+    id: 'd2',
+    name: '交通运输局',
+    type: '专业部门',
+    contactName: '李慧',
+    contactPhone: '010-86570002',
+    responsibilities: ['公共交通服务', '客运秩序管理', '道路运输协调', '交通行业投诉办理'],
+  },
+  {
+    id: 'd3',
+    name: '生态环境局',
+    type: '专业部门',
+    contactName: '王磊',
+    contactPhone: '010-86570003',
+    responsibilities: ['噪音污染处置', '大气污染监管', '水环境问题核查', '环境执法联动'],
+  },
+  {
+    id: 'd4',
+    name: '住房和城乡建设局',
+    type: '专业部门',
+    contactName: '赵妍',
+    contactPhone: '010-86570004',
+    responsibilities: ['物业管理协调', '房屋质量投诉', '道路养护统筹', '建设工程问题处理'],
+  },
+  {
+    id: 'd5',
+    name: '园林绿化局',
+    type: '专业部门',
+    contactName: '陈晨',
+    contactPhone: '010-86570005',
+    responsibilities: ['绿地养护', '树木修剪', '园林设施维护', '绿化占用核查'],
+  },
+  {
+    id: 'd6',
+    name: '水务局',
+    type: '专业部门',
+    contactName: '刘洋',
+    contactPhone: '010-86570006',
+    responsibilities: ['供水排水协调', '河道管理', '积水点处置', '水务设施维护'],
+  },
+  {
+    id: 'd7',
+    name: '市场监督管理局',
+    type: '综合部门',
+    contactName: '孙洁',
+    contactPhone: '010-86570007',
+    responsibilities: ['消费投诉处理', '市场经营秩序', '食品安全监管', '价格计量问题核查'],
+  },
+  {
+    id: 'd8',
+    name: '公安局交通管理局',
+    type: '执法部门',
+    contactName: '周强',
+    contactPhone: '010-86570008',
+    responsibilities: ['道路交通秩序', '交通设施维护', '停车违法处置', '交通安全隐患排查'],
+  },
 ];
 
 export const sourceMap: Record<string, string> = {

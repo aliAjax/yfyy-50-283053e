@@ -42,6 +42,9 @@ export interface Department {
   id: string;
   name: string;
   type: string;
+  contactName: string;
+  contactPhone: string;
+  responsibilities: string[];
 }
 
 export type KnowledgeStatus = 'active' | 'inactive';

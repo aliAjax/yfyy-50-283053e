@@ -11,6 +11,7 @@ import {
   User,
   Bell,
   BookOpen,
+  Building2,
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAppStore } from '@/store/appStore';
@@ -53,6 +54,11 @@ const menuItems = [
     icon: <BookOpen size={18} />,
     label: '知识库管理',
   },
+  {
+    key: '/department-directory',
+    icon: <Building2 size={18} />,
+    label: '责任单位通讯录',
+  },
 ];
 
 const titleMap: Record<string, string> = {
@@ -63,6 +69,7 @@ const titleMap: Record<string, string> = {
   '/supervision': '督办管理',
   '/statistics': '统计分析',
   '/knowledge-base': '知识库管理',
+  '/department-directory': '责任单位通讯录',
   '/notifications': '通知中心',
 };
 

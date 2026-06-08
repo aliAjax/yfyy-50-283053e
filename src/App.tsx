@@ -12,6 +12,7 @@ import Supervision from '@/pages/Supervision';
 import Statistics from '@/pages/Statistics';
 import NotificationCenter from '@/pages/NotificationCenter';
 import KnowledgeBase from '@/pages/KnowledgeBase';
+import DepartmentDirectory from '@/pages/DepartmentDirectory';
 import MainLayout from '@/components/MainLayout';
 import { useAppStore } from '@/store/appStore';
 
@@ -145,6 +146,16 @@ export default function App() {
               <ProtectedRoute>
                 <MainLayout>
                   <KnowledgeBase />
+                </MainLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/department-directory"
+            element={
+              <ProtectedRoute>
+                <MainLayout>
+                  <DepartmentDirectory />
                 </MainLayout>
               </ProtectedRoute>
             }
