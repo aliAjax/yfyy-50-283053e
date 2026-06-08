@@ -1,4 +1,4 @@
-import { Card, Row, Col, List, Tag } from 'antd';
+import { Card, Row, Col, List, Tag, Button } from 'antd';
 import ReactECharts from 'echarts-for-react';
 import {
   FileText,
@@ -10,13 +10,47 @@ import {
   TrendingUp,
   MapPin,
   Repeat,
+  Bell,
+  Clock4,
+  ChevronRight,
 } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import dayjs from 'dayjs';
 import { useAppStore } from '@/store/appStore';
+import { areas } from '@/data/dictionaries';
 
 const Dashboard: React.FC = () => {
-  const { dashboardStats } = useAppStore();
+  const navigate = useNavigate();
+  const { dashboardStats, complaints, extensionRequests } = useAppStore();
 
   if (!dashboardStats) return null;
+
+  const expiringCount = complaints.filter((c) => {
+    if (c.status === 'completed') return false;
+    const daysLeft = dayjs(c.deadline).diff(dayjs(), 'day');
+    return daysLeft >= 0 && daysLeft <= 2;
+  }).length;
+
+  const overdueCount = complaints.filter((c) => {
+    if (c.status === 'completed') return false;
+    return dayjs().isAfter(dayjs(c.deadline));
+  }).length;
+
+  const multiUrgeCount = complaints.filter((c) => {
+    if (c.status === 'completed') return false;
+    return (c.urgeCount || 0) >= 2;
+  }).length;
+
+  const delayPendingCount = extensionRequests.filter(
+    (r) => r.status === 'pending'
+  ).length;
+
+  const highRiskCount = complaints.filter((c) => {
+    if (c.status === 'completed') return false;
+    const isOverdue = dayjs().isAfter(dayjs(c.deadline));
+    const urgeCount = c.urgeCount || 0;
+    return isOverdue || urgeCount >= 3;
+  }).length;
 
   const statCards = [
     {
@@ -40,6 +74,7 @@ const Dashboard: React.FC = () => {
       iconColor: 'text-orange-600',
       trend: '+5%',
       trendUp: true,
+      linkTo: '/warning-center?tab=expiring',
     },
     {
       title: '已办结',
@@ -62,6 +97,7 @@ const Dashboard: React.FC = () => {
       iconColor: 'text-red-600',
       trend: '-8%',
       trendUp: false,
+      linkTo: '/warning-center?tab=overdue',
     },
     {
       title: '满意度',
@@ -254,8 +290,11 @@ const Dashboard: React.FC = () => {
         {statCards.map((card, index) => (
           <Col xs={24} sm={12} md={8} lg={4} key={index}>
             <Card
-              className="h-full border-0 shadow-sm hover:shadow-md transition-shadow duration-300"
+              className={`h-full border-0 shadow-sm transition-all duration-300 ${
+                card.linkTo ? 'cursor-pointer hover:shadow-md hover:-translate-y-0.5' : 'hover:shadow-md'
+              }`}
               styles={{ body: { padding: '20px' } }}
+              onClick={() => card.linkTo && navigate(card.linkTo)}
             >
               <div className="flex items-start justify-between">
                 <div>
@@ -279,10 +318,114 @@ const Dashboard: React.FC = () => {
                   {card.icon}
                 </div>
               </div>
+              {card.linkTo && (
+                <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-end text-xs text-blue-500 hover:text-blue-600">
+                  查看详情 <ChevronRight size={14} />
+                </div>
+              )}
             </Card>
           </Col>
         ))}
       </Row>
+
+      <Card
+        className="shadow-sm border-0"
+        title={
+          <div className="flex items-center justify-between">
+            <span className="font-semibold flex items-center gap-2">
+              <AlertTriangle size={18} className="text-orange-500" />
+              时限预警概览
+            </span>
+            <span
+              className="text-sm text-blue-500 cursor-pointer hover:text-blue-600 flex items-center gap-1"
+              onClick={() => navigate('/warning-center')}
+            >
+              查看全部 <ChevronRight size={14} />
+            </span>
+          </div>
+        }
+      >
+        <Row gutter={[16, 16]}>
+          <Col xs={12} sm={6}>
+            <div
+              className="p-4 rounded-lg bg-gradient-to-br from-orange-50 to-orange-100 border border-orange-200 cursor-pointer hover:shadow-md transition-all duration-200 hover:scale-[1.02]"
+              onClick={() => navigate('/warning-center?tab=expiring')}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <Clock size={20} className="text-orange-500" />
+                <Tag color="orange" className="m-0">
+                  {expiringCount} 件
+                </Tag>
+              </div>
+              <p className="text-sm font-medium text-gray-700">即将到期</p>
+              <p className="text-xs text-gray-500 mt-1">2天内到期</p>
+            </div>
+          </Col>
+          <Col xs={12} sm={6}>
+            <div
+              className="p-4 rounded-lg bg-gradient-to-br from-red-50 to-red-100 border border-red-200 cursor-pointer hover:shadow-md transition-all duration-200 hover:scale-[1.02]"
+              onClick={() => navigate('/warning-center?tab=overdue')}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <AlertTriangle size={20} className="text-red-500" />
+                <Tag color="red" className="m-0">
+                  {overdueCount} 件
+                </Tag>
+              </div>
+              <p className="text-sm font-medium text-gray-700">已超期</p>
+              <p className="text-xs text-gray-500 mt-1">超期未办结</p>
+            </div>
+          </Col>
+          <Col xs={12} sm={6}>
+            <div
+              className="p-4 rounded-lg bg-gradient-to-br from-purple-50 to-purple-100 border border-purple-200 cursor-pointer hover:shadow-md transition-all duration-200 hover:scale-[1.02]"
+              onClick={() => navigate('/warning-center?tab=multiUrge')}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <Bell size={20} className="text-purple-500" />
+                <Tag color="purple" className="m-0">
+                  {multiUrgeCount} 件
+                </Tag>
+              </div>
+              <p className="text-sm font-medium text-gray-700">多次催办</p>
+              <p className="text-xs text-gray-500 mt-1">催办≥2次</p>
+            </div>
+          </Col>
+          <Col xs={12} sm={6}>
+            <div
+              className="p-4 rounded-lg bg-gradient-to-br from-cyan-50 to-cyan-100 border border-cyan-200 cursor-pointer hover:shadow-md transition-all duration-200 hover:scale-[1.02]"
+              onClick={() => navigate('/warning-center?tab=delayPending')}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <Clock4 size={20} className="text-cyan-500" />
+                <Tag color="cyan" className="m-0">
+                  {delayPendingCount} 件
+                </Tag>
+              </div>
+              <p className="text-sm font-medium text-gray-700">延期待审批</p>
+              <p className="text-xs text-gray-500 mt-1">等待审批</p>
+            </div>
+          </Col>
+        </Row>
+        {highRiskCount > 0 && (
+          <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <AlertTriangle size={18} className="text-red-500 flex-shrink-0" />
+              <span className="text-sm text-red-700">
+                当前有 <strong className="text-red-600">{highRiskCount}</strong> 件高风险工单，请及时关注处理
+              </span>
+            </div>
+            <Button
+              type="primary"
+              danger
+              size="small"
+              onClick={() => navigate('/warning-center?riskLevel=high')}
+            >
+              立即处理
+            </Button>
+          </div>
+        )}
+      </Card>
 
       <Row gutter={[16, 16]}>
         <Col xs={24} lg={16}>
@@ -324,23 +467,35 @@ const Dashboard: React.FC = () => {
           >
             <List
               dataSource={dashboardStats.areaRank}
-              renderItem={(item, index) => (
-                <List.Item className="px-0 py-2">
-                  <div className="flex items-center w-full">
-                    <span
-                      className={`w-6 h-6 rounded-md flex items-center justify-center text-xs font-bold mr-3 ${
-                        index < 3
-                          ? 'bg-gradient-to-r from-orange-500 to-red-500 text-white'
-                          : 'bg-gray-100 text-gray-500'
-                      }`}
-                    >
-                      {index + 1}
-                    </span>
-                    <span className="flex-1 text-gray-700">{item.name}</span>
-                    <span className="text-blue-600 font-semibold">{item.count}件</span>
-                  </div>
-                </List.Item>
-              )}
+              renderItem={(item, index) => {
+                const areaInfo = areas.find((a) => a.name === item.name);
+                return (
+                  <List.Item
+                    className="px-0 py-2 cursor-pointer hover:bg-gray-50 -mx-2 px-2 rounded transition-colors"
+                    onClick={() =>
+                      areaInfo &&
+                      navigate(`/warning-center?tab=overdue&areaId=${areaInfo.id}`)
+                    }
+                  >
+                    <div className="flex items-center w-full">
+                      <span
+                        className={`w-6 h-6 rounded-md flex items-center justify-center text-xs font-bold mr-3 ${
+                          index < 3
+                            ? 'bg-gradient-to-r from-orange-500 to-red-500 text-white'
+                            : 'bg-gray-100 text-gray-500'
+                        }`}
+                      >
+                        {index + 1}
+                      </span>
+                      <span className="flex-1 text-gray-700">{item.name}</span>
+                      <div className="flex items-center gap-1">
+                        <span className="text-blue-600 font-semibold">{item.count}件</span>
+                        <ChevronRight size={14} className="text-gray-400" />
+                      </div>
+                    </div>
+                  </List.Item>
+                );
+              }}
             />
           </Card>
         </Col>
@@ -356,21 +511,34 @@ const Dashboard: React.FC = () => {
           >
             <List
               dataSource={dashboardStats.repeatTop}
-              renderItem={(item) => (
-                <List.Item className="px-0 py-2">
-                  <div className="w-full">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="text-gray-700 text-sm truncate flex-1 mr-2">
-                        {item.title}
-                      </span>
-                      <Tag color="orange" className="flex-shrink-0">
-                        {item.count}次
-                      </Tag>
+              renderItem={(item) => {
+                const areaInfo = areas.find((a) => a.name === item.area);
+                return (
+                  <List.Item
+                    className="px-0 py-2 cursor-pointer hover:bg-gray-50 -mx-2 px-2 rounded transition-colors"
+                    onClick={() =>
+                      navigate(
+                        `/warning-center?tab=multiUrge${areaInfo ? `&areaId=${areaInfo.id}` : ''}&riskLevel=high`
+                      )
+                    }
+                  >
+                    <div className="w-full">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-gray-700 text-sm truncate flex-1 mr-2">
+                          {item.title}
+                        </span>
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <Tag color="orange" className="m-0">
+                            {item.count}次
+                          </Tag>
+                          <ChevronRight size={14} className="text-gray-400" />
+                        </div>
+                      </div>
+                      <span className="text-xs text-gray-400">{item.area}</span>
                     </div>
-                    <span className="text-xs text-gray-400">{item.area}</span>
-                  </div>
-                </List.Item>
-              )}
+                  </List.Item>
+                );
+              }}
             />
           </Card>
         </Col>

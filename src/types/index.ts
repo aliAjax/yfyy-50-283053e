@@ -22,7 +22,11 @@ export type TimelineType =
   | 'urge'
   | 'review'
   | 'followup'
-  | 'complete';
+  | 'complete'
+  | 'merge'
+  | 'merged_into';
+
+export type AssignSource = 'auto' | 'manual';
 
 export interface Category {
   id: string;
@@ -42,6 +46,10 @@ export interface Department {
   id: string;
   name: string;
   type: string;
+  contact?: string;
+  phone?: string;
+  responsibilities?: string;
+  address?: string;
 }
 
 export interface TimelineRecord {
@@ -52,6 +60,23 @@ export interface TimelineRecord {
   content: string;
   createdAt: string;
   remark?: string;
+  assignSource?: AssignSource;
+}
+
+export interface DispatchRule {
+  id: string;
+  name: string;
+  categoryId: string;
+  categoryName: string;
+  areaId: string;
+  areaName: string;
+  departmentId: string;
+  departmentName: string;
+  priority: number;
+  enabled: boolean;
+  description?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface Complaint {
@@ -74,8 +99,28 @@ export interface Complaint {
   address?: string;
   satisfaction?: number;
   isRepeat?: boolean;
+  repeatGroupId?: string;
+  repeatCount?: number;
+  repeatComplaintIds?: string[];
   urgeCount?: number;
   timelines: TimelineRecord[];
+  assignSource?: AssignSource;
+  dispatchRuleId?: string;
+  dispatchRuleName?: string;
+}
+
+export interface DuplicateComplaintResult {
+  complaint: Complaint;
+  similarity: number;
+  matchReasons: string[];
+}
+
+export interface DuplicateDetectionInput {
+  title: string;
+  categoryId: string;
+  areaId: string;
+  address?: string;
+  contactPhone: string;
 }
 
 export interface DashboardStats {
@@ -113,4 +158,108 @@ export interface ExtensionRequest {
   approvedAt?: string;
   approver?: string;
   approveRemark?: string;
+}
+
+export type NotificationType = 'urge' | 'delay_approve' | 'delay_reject' | 'delay_request' | 'return' | 'review_pass' | 'new_complaint';
+
+export interface Notification {
+  id: string;
+  type: NotificationType;
+  title: string;
+  content: string;
+  complaintId?: string;
+  extensionRequestId?: string;
+  isRead: boolean;
+  createdAt: string;
+}
+
+export type ProcessActionType =
+  | 'accept'
+  | 'assign'
+  | 'transfer'
+  | 'process'
+  | 'return'
+  | 'delay_request'
+  | 'delay_approve'
+  | 'delay_reject'
+  | 'urge'
+  | 'review_pass'
+  | 'review_reject'
+  | 'followup'
+  | 'complete';
+
+export interface ProcessNode {
+  id: string;
+  status: ComplaintStatus;
+  name: string;
+  description: string;
+  color: string;
+  order: number;
+  allowedActions: ProcessActionType[];
+}
+
+export interface ProcessAction {
+  type: ProcessActionType;
+  name: string;
+  description: string;
+  icon: string;
+  fromStatus: ComplaintStatus[];
+  toStatus: ComplaintStatus | null;
+  timelineType: TimelineType;
+  requiresInput?: boolean;
+  inputLabel?: string;
+  inputPlaceholder?: string;
+  role?: 'operator' | 'supervisor' | 'system';
+}
+
+export interface ProcessConfig {
+  id: string;
+  name: string;
+  description: string;
+  nodes: ProcessNode[];
+  actions: ProcessAction[];
+  initialStatus: ComplaintStatus;
+  finalStatuses: ComplaintStatus[];
+  createdAt: string;
+  updatedAt: string;
+  enabled: boolean;
+}
+
+export interface SimulationStep {
+  id: string;
+  actionType: ProcessActionType;
+  actionName: string;
+  fromStatus: ComplaintStatus;
+  toStatus: ComplaintStatus | null;
+  operator: string;
+  content: string;
+  timestamp: string;
+  remark?: string;
+}
+
+export interface SimulationState {
+  complaintId: string;
+  complaintTitle: string;
+  currentStatus: ComplaintStatus;
+  history: SimulationStep[];
+  startStatus: ComplaintStatus;
+  startTimestamp: string;
+}
+
+export type KnowledgeStatus = 'active' | 'disabled';
+
+export interface KnowledgeEntry {
+  id: string;
+  title: string;
+  content: string;
+  categoryId: string;
+  categoryName: string;
+  departmentId: string;
+  departmentName: string;
+  keywords: string[];
+  status: KnowledgeStatus;
+  createdAt: string;
+  updatedAt: string;
+  creator: string;
+  usageCount: number;
 }

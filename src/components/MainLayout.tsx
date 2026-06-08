@@ -1,4 +1,4 @@
-import { Layout, Menu, Avatar, Dropdown, theme } from 'antd';
+import { Layout, Menu, Avatar, Dropdown, theme, Badge } from 'antd';
 import {
   LayoutDashboard,
   FileText,
@@ -9,6 +9,13 @@ import {
   LogOut,
   User,
   Bell,
+  Upload,
+  BookOpen,
+  PhoneCall,
+  Workflow,
+  AlertTriangle,
+  Award,
+  GitBranch,
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAppStore } from '@/store/appStore';
@@ -27,6 +34,11 @@ const menuItems = [
     label: '投诉管理',
   },
   {
+    key: '/batch-import',
+    icon: <Upload size={18} />,
+    label: '批量录入',
+  },
+  {
     key: '/my-tasks',
     icon: <ListTodo size={18} />,
     label: '待办事项',
@@ -37,9 +49,39 @@ const menuItems = [
     label: '督办管理',
   },
   {
+    key: '/warning-center',
+    icon: <AlertTriangle size={18} />,
+    label: '时限预警中心',
+  },
+  {
     key: '/statistics',
     icon: <BarChart3 size={18} />,
     label: '统计分析',
+  },
+  {
+    key: '/department-performance',
+    icon: <Award size={18} />,
+    label: '部门绩效考核',
+  },
+  {
+    key: '/knowledge-base',
+    icon: <BookOpen size={18} />,
+    label: '知识库管理',
+  },
+  {
+    key: '/department-directory',
+    icon: <PhoneCall size={18} />,
+    label: '责任单位通讯录',
+  },
+  {
+    key: '/dispatch-rules',
+    icon: <Workflow size={18} />,
+    label: '智能派单规则',
+  },
+  {
+    key: '/process-simulator',
+    icon: <GitBranch size={18} />,
+    label: '流程配置与模拟器',
   },
 ];
 
@@ -50,10 +92,12 @@ interface MainLayoutProps {
 const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, setUser } = useAppStore();
+  const { user, setUser, notifications } = useAppStore();
   const {
     token: { colorBgContainer, borderRadiusLG },
   } = theme.useToken();
+
+  const unreadCount = notifications.filter((n) => !n.isRead).length;
 
   const handleMenuClick = ({ key }: { key: string }) => {
     navigate(key);
@@ -87,6 +131,16 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   ];
 
   const selectedKey = '/' + location.pathname.split('/')[1];
+
+  const getPageTitle = () => {
+    if (location.pathname.startsWith('/notifications')) {
+      return '通知中心';
+    }
+    if (location.pathname.startsWith('/complaints/') && location.pathname !== '/complaints') {
+      return '投诉详情';
+    }
+    return menuItems.find((item) => item.key === selectedKey)?.label || '城市治理投诉建议平台';
+  };
 
   return (
     <Layout className="min-h-screen">
@@ -136,12 +190,16 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           }}
         >
           <div className="text-lg font-medium text-gray-800">
-            {menuItems.find((item) => item.key === selectedKey)?.label || '城市治理投诉建议平台'}
+            {getPageTitle()}
           </div>
           <div className="flex items-center gap-4">
-            <div className="relative cursor-pointer p-2 rounded-lg hover:bg-gray-100 transition-colors">
-              <Bell size={20} className="text-gray-600" />
-              <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
+            <div
+              className="relative cursor-pointer p-2 rounded-lg hover:bg-gray-100 transition-colors"
+              onClick={() => navigate('/notifications')}
+            >
+              <Badge count={unreadCount} size="small" offset={[-2, 2]}>
+                <Bell size={20} className="text-gray-600" />
+              </Badge>
             </div>
             <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
               <div className="flex items-center gap-3 cursor-pointer hover:bg-gray-50 px-3 py-1.5 rounded-lg transition-colors">

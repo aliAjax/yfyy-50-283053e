@@ -1,0 +1,875 @@
+import { Form, Input, Select, Button, Card, message, Tabs, Tag, Descriptions, Alert, Modal, List, Avatar, Progress } from 'antd';
+import {
+  FileText,
+  List as ListIcon,
+  MapPin,
+  User,
+  Phone,
+  Send,
+  Home,
+  CheckCircle,
+  AlignLeft,
+  Search,
+  Clock,
+  Zap,
+  Building2,
+  ClipboardList,
+  AlertTriangle,
+  GitMerge,
+  Plus,
+  X,
+} from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAppStore } from '@/store/appStore';
+import type { Complaint, Department, AssignSource, DuplicateComplaintResult } from '@/types';
+import ComplaintTimeline from '@/components/ComplaintTimeline';
+import { categories, areas, departments, statusMap, statusColorMap, assignSourceMap } from '@/data/dictionaries';
+import type { DispatchMatchResult } from '@/lib/utils';
+import { getSimilarityColor, getSimilarityLabel, getSimilarityLevel } from '@/lib/utils';
+
+const PublicSubmit: React.FC = () => {
+  const navigate = useNavigate();
+  const { submitPublicComplaint, queryComplaintPublic, matchDispatch, detectDuplicates, mergeComplaint, getComplaintById } = useAppStore();
+  const [submitForm] = Form.useForm();
+  const [queryForm] = Form.useForm();
+  const [submitted, setSubmitted] = useState(false);
+  const [newComplaint, setNewComplaint] = useState<Complaint | null>(null);
+  const [queriedComplaint, setQueriedComplaint] = useState<Complaint | null>(null);
+  const [activeTab, setActiveTab] = useState('submit');
+  const [matchResult, setMatchResult] = useState<DispatchMatchResult | null>(null);
+  const [matchedDept, setMatchedDept] = useState<Department | null>(null);
+  const [selectedCatId, setSelectedCatId] = useState<string | undefined>('c1-1');
+  const [selectedAreaId, setSelectedAreaId] = useState<string | undefined>('a1');
+  const [duplicateResults, setDuplicateResults] = useState<DuplicateComplaintResult[]>([]);
+  const [showDuplicateModal, setShowDuplicateModal] = useState(false);
+  const [pendingSubmitData, setPendingSubmitData] = useState<any>(null);
+  const [checkingDuplicates, setCheckingDuplicates] = useState(false);
+
+  const topLevelCategories = categories.filter((c) => !c.parentId);
+
+  const getSubCategories = (parentId: string) => {
+    return categories.filter((c) => c.parentId === parentId);
+  };
+
+  useEffect(() => {
+    if (selectedCatId && selectedAreaId) {
+      const result = matchDispatch(selectedCatId, selectedAreaId);
+      setMatchResult(result);
+      if (result.matched && result.rule) {
+        setMatchedDept(departments.find(d => d.id === result.rule?.departmentId) || null);
+      } else {
+        setMatchedDept(null);
+      }
+    }
+  }, [selectedCatId, selectedAreaId]);
+
+  const handleCategoryChange = (value: string) => {
+    setSelectedCatId(value);
+  };
+
+  const handleAreaChange = (value: string) => {
+    setSelectedAreaId(value);
+  };
+
+  const doSubmit = useCallback((values: {
+    title: string;
+    categoryId: string;
+    areaId: string;
+    address: string;
+    contactName: string;
+    contactPhone: string;
+    content: string;
+  }) => {
+    const category = categories.find((c) => c.id === values.categoryId);
+    const parentCategory = categories.find((c) => c.id === category?.parentId);
+    const area = areas.find((a) => a.id === values.areaId);
+    
+    const categoryName = parentCategory
+      ? `${parentCategory.name} - ${category?.name}`
+      : category?.name || '';
+
+    let departmentId = departments[0].id;
+    let departmentName = departments[0].name;
+    let assignSource: AssignSource = 'auto';
+    let dispatchRuleId: string | undefined;
+    let dispatchRuleName: string | undefined;
+
+    if (matchResult?.matched && matchResult.rule) {
+      departmentId = matchResult.rule.departmentId;
+      departmentName = matchResult.rule.departmentName;
+      assignSource = 'auto';
+      dispatchRuleId = matchResult.rule.id;
+      dispatchRuleName = matchResult.rule.name;
+    } else {
+      departmentId = departments[0].id;
+      departmentName = departments[0].name;
+      assignSource = 'manual';
+    }
+
+    const result = submitPublicComplaint({
+      title: values.title,
+      content: values.content,
+      categoryId: values.categoryId,
+      categoryName,
+      areaId: values.areaId,
+      areaName: area?.name || '',
+      address: values.address,
+      contactName: values.contactName,
+      contactPhone: values.contactPhone,
+      departmentId,
+      departmentName,
+      assignSource,
+      dispatchRuleId,
+      dispatchRuleName,
+    });
+
+    setNewComplaint(result);
+    setSubmitted(true);
+    message.success('投诉提交成功');
+  }, [matchResult, submitPublicComplaint]);
+
+  const handleSubmit = (values: {
+    title: string;
+    categoryId: string;
+    areaId: string;
+    address: string;
+    contactName: string;
+    contactPhone: string;
+    content: string;
+  }) => {
+    setCheckingDuplicates(true);
+    
+    const duplicates = detectDuplicates({
+      title: values.title,
+      categoryId: values.categoryId,
+      areaId: values.areaId,
+      address: values.address,
+      contactPhone: values.contactPhone,
+    });
+
+    setCheckingDuplicates(false);
+
+    if (duplicates.length > 0) {
+      setDuplicateResults(duplicates);
+      setPendingSubmitData(values);
+      setShowDuplicateModal(true);
+    } else {
+      doSubmit(values);
+    }
+  };
+
+  const handleContinueCreate = () => {
+    if (pendingSubmitData) {
+      doSubmit(pendingSubmitData);
+    }
+    setShowDuplicateModal(false);
+    setPendingSubmitData(null);
+    setDuplicateResults([]);
+  };
+
+  const handleMergeToComplaint = (targetComplaint: Complaint) => {
+    Modal.confirm({
+      title: '确认合并',
+      content: `确定要将您的投诉合并到「${targetComplaint.title}」吗？合并后将作为重复投诉处理，可在进度查询中查看。`,
+      okText: '确认合并',
+      cancelText: '取消',
+      onOk: () => {
+        if (pendingSubmitData) {
+          const newComplaintResult = submitPublicComplaint({
+            title: pendingSubmitData.title,
+            content: pendingSubmitData.content,
+            categoryId: pendingSubmitData.categoryId,
+            categoryName: targetComplaint.categoryName,
+            areaId: pendingSubmitData.areaId,
+            areaName: targetComplaint.areaName,
+            address: pendingSubmitData.address,
+            contactName: pendingSubmitData.contactName,
+            contactPhone: pendingSubmitData.contactPhone,
+            departmentId: targetComplaint.departmentId,
+            departmentName: targetComplaint.departmentName,
+            assignSource: targetComplaint.assignSource || 'auto',
+            dispatchRuleId: targetComplaint.dispatchRuleId,
+            dispatchRuleName: targetComplaint.dispatchRuleName,
+          });
+
+          mergeComplaint(newComplaintResult.id, targetComplaint.id, '公众提交');
+
+          setNewComplaint(newComplaintResult);
+          setSubmitted(true);
+          message.success('投诉已提交并合并到已有投诉');
+        }
+        setShowDuplicateModal(false);
+        setPendingSubmitData(null);
+        setDuplicateResults([]);
+      },
+    });
+  };
+
+  const handleQuery = (values: { id: string; phone: string }) => {
+    const result = queryComplaintPublic(values.id.toUpperCase(), values.phone);
+    if (result) {
+      setQueriedComplaint(result);
+    } else {
+      message.error('未找到相关投诉记录，请核实投诉编号和手机号');
+      setQueriedComplaint(null);
+    }
+  };
+
+  const handleContinueSubmit = () => {
+    setSubmitted(false);
+    setNewComplaint(null);
+    setMatchResult(null);
+    setMatchedDept(null);
+    setSelectedCatId('c1-1');
+    setSelectedAreaId('a1');
+    submitForm.resetFields();
+  };
+
+  const handleTabChange = (key: string) => {
+    setActiveTab(key);
+    if (key === 'query') {
+      setQueriedComplaint(null);
+      queryForm.resetFields();
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    return statusColorMap[status] || 'default';
+  };
+
+  const SuccessView = () => (
+    <div className="space-y-6">
+      <div className="text-center">
+        <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-green-100 mb-4">
+          <CheckCircle className="text-green-500" size={40} />
+        </div>
+        <h3 className="text-xl font-semibold text-gray-800 mb-1">提交成功</h3>
+        <p className="text-gray-500">
+          您的投诉建议已成功提交，投诉编号：
+          <span className="font-mono text-blue-600 font-semibold">{newComplaint?.id}</span>
+        </p>
+      </div>
+
+      <Descriptions column={2} size="small" bordered>
+        <Descriptions.Item label="事项分类">{newComplaint?.categoryName}</Descriptions.Item>
+        <Descriptions.Item label="所属区域">{newComplaint?.areaName}</Descriptions.Item>
+        <Descriptions.Item label="责任单位" span={2}>
+          {newComplaint?.departmentName}
+        </Descriptions.Item>
+        <Descriptions.Item label="派单方式">
+          <Tag color={newComplaint?.assignSource === 'auto' ? 'green' : 'orange'}>
+            {newComplaint?.assignSource === 'auto' ? '智能派单' : '人工派单'}
+          </Tag>
+        </Descriptions.Item>
+        <Descriptions.Item label="办理状态">
+          <Tag color={getStatusColor(newComplaint?.status || '')}>
+            {statusMap[newComplaint?.status || '']}
+          </Tag>
+        </Descriptions.Item>
+        <Descriptions.Item label="提交时间" span={2}>
+          <span className="flex items-center gap-1">
+            <Clock size={12} className="text-gray-400" />
+            {newComplaint?.createdAt}
+          </span>
+        </Descriptions.Item>
+      </Descriptions>
+
+      <div>
+        <h4 className="font-medium text-gray-700 mb-3">办理进度</h4>
+        <div className="bg-gray-50 p-4 rounded-lg">
+          {newComplaint && <ComplaintTimeline records={newComplaint.timelines} />}
+        </div>
+      </div>
+
+      <div className="flex gap-3">
+        <Button type="primary" block icon={<Send size={16} />} onClick={handleContinueSubmit}>
+          继续提交
+        </Button>
+        <Button block icon={<Search size={16} />} onClick={() => setActiveTab('query')}>
+          查看更多进度
+        </Button>
+      </div>
+
+      <div className="text-center text-gray-400 text-sm">
+        您可以随时通过投诉编号和手机号查询办理进度
+      </div>
+    </div>
+  );
+
+  const SubmitForm = () => (
+    <Form
+      form={submitForm}
+      layout="vertical"
+      onFinish={handleSubmit}
+      initialValues={{ categoryId: 'c1-1', areaId: 'a1' }}
+    >
+      <Form.Item
+        name="title"
+        label={
+          <span className="flex items-center gap-1">
+            <FileText size={14} className="text-blue-500" />
+            投诉标题
+          </span>
+        }
+        rules={[{ required: true, message: '请输入投诉标题' }]}
+      >
+        <Input
+          placeholder="请简要描述您的投诉或建议"
+          maxLength={100}
+          showCount
+          className="rounded-lg"
+        />
+      </Form.Item>
+
+      <Form.Item
+        name="categoryId"
+        label={
+          <span className="flex items-center gap-1">
+            <ListIcon size={14} className="text-blue-500" />
+            事项分类
+          </span>
+        }
+        rules={[{ required: true, message: '请选择事项分类' }]}
+      >
+        <Select
+          placeholder="请选择事项分类"
+          className="rounded-lg"
+          style={{ width: '100%' }}
+          showSearch
+          optionFilterProp="children"
+          onChange={handleCategoryChange}
+        >
+          {topLevelCategories.map((top) => (
+            <Select.OptGroup key={top.id} label={top.name}>
+              {getSubCategories(top.id).map((sub) => (
+                <Select.Option key={sub.id} value={sub.id}>
+                  {sub.name}
+                </Select.Option>
+              ))}
+            </Select.OptGroup>
+          ))}
+        </Select>
+      </Form.Item>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Form.Item
+          name="areaId"
+          label={
+            <span className="flex items-center gap-1">
+              <MapPin size={14} className="text-blue-500" />
+              所属区域
+            </span>
+          }
+          rules={[{ required: true, message: '请选择所属区域' }]}
+        >
+          <Select
+            placeholder="请选择所属区域"
+            className="rounded-lg"
+            style={{ width: '100%' }}
+            onChange={handleAreaChange}
+          >
+            {areas.map((area) => (
+              <Select.Option key={area.id} value={area.id}>
+                {area.name}
+              </Select.Option>
+            ))}
+          </Select>
+        </Form.Item>
+
+        <Form.Item
+          name="address"
+          label={
+            <span className="flex items-center gap-1">
+              <MapPin size={14} className="text-blue-500" />
+              详细地址
+            </span>
+          }
+          rules={[{ required: true, message: '请输入详细地址' }]}
+        >
+          <Input placeholder="请输入详细地址" className="rounded-lg" />
+        </Form.Item>
+      </div>
+
+      {matchResult && matchResult.matched && matchedDept && (
+        <Alert
+          message={
+            <div className="flex items-center gap-2">
+              <Zap size={16} className="text-green-500" />
+              <span>
+                智能匹配责任单位：<strong>{matchedDept.name}</strong>
+              </span>
+            </div>
+          }
+          type="success"
+          showIcon={false}
+          className="mb-4"
+        />
+      )}
+
+      {matchResult && !matchResult.matched && (
+        <Alert
+          message={
+            <div className="flex items-center gap-2">
+              <Zap size={16} className="text-orange-500" />
+              <span>
+                暂未匹配到对应责任单位，将由工作人员人工分派
+              </span>
+            </div>
+          }
+          type="warning"
+          showIcon={false}
+          className="mb-4"
+        />
+      )}
+
+      {matchedDept && (
+        <div className="mb-4 p-4 bg-blue-50/60 rounded-lg border border-blue-100">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
+              <Building2 size={20} className="text-blue-500" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="font-medium text-gray-800 text-sm">
+                {matchedDept.name}
+              </div>
+              <div className="text-xs text-gray-500">
+                {matchedDept.type}
+              </div>
+            </div>
+          </div>
+          {matchedDept.responsibilities && (
+            <div className="mt-2 pt-2 border-t border-blue-200">
+              <div className="flex items-center gap-1.5 text-xs text-gray-500 mb-1">
+                <ClipboardList size={11} />
+                <span>主要职责</span>
+              </div>
+              <p className="text-xs text-gray-600 leading-relaxed line-clamp-2">
+                {matchedDept.responsibilities}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Form.Item
+        name="contactName"
+        label={
+          <span className="flex items-center gap-1">
+            <User size={14} className="text-blue-500" />
+            联系人
+          </span>
+        }
+        rules={[{ required: true, message: '请输入联系人姓名' }]}
+      >
+        <Input placeholder="请输入您的姓名" className="rounded-lg" />
+      </Form.Item>
+
+      <Form.Item
+        name="contactPhone"
+        label={
+          <span className="flex items-center gap-1">
+            <Phone size={14} className="text-blue-500" />
+            联系电话
+          </span>
+        }
+        rules={[
+          { required: true, message: '请输入联系电话' },
+          { pattern: /^1[3-9]\d{9}$/, message: '请输入正确的手机号' },
+        ]}
+      >
+        <Input placeholder="请输入您的手机号" className="rounded-lg" maxLength={11} />
+      </Form.Item>
+      </div>
+
+      <Form.Item
+        name="content"
+        label={
+          <span className="flex items-center gap-1">
+            <AlignLeft size={14} className="text-blue-500" />
+            投诉内容
+          </span>
+        }
+        rules={[{ required: true, message: '请输入投诉内容' }]}
+      >
+        <Input.TextArea
+          rows={5}
+          placeholder="请详细描述您遇到的问题或建议..."
+          maxLength={1000}
+          showCount
+          className="rounded-lg"
+        />
+      </Form.Item>
+
+      <Form.Item className="mb-0 mt-6">
+        <Button
+          type="primary"
+          htmlType="submit"
+          size="large"
+          block
+          className="h-12 rounded-lg font-medium text-base bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 shadow-lg shadow-blue-500/30"
+          icon={<Send size={18} />}
+          loading={checkingDuplicates}
+        >
+          {checkingDuplicates ? '正在检测重复投诉...' : '提交投诉建议'}
+        </Button>
+      </Form.Item>
+    </Form>
+  );
+
+  const DuplicateModal = () => (
+    <Modal
+      title={
+        <div className="flex items-center gap-2">
+          <AlertTriangle size={20} className="text-orange-500" />
+          <span>发现疑似重复投诉</span>
+        </div>
+      }
+      open={showDuplicateModal}
+      onCancel={() => {
+        setShowDuplicateModal(false);
+        setPendingSubmitData(null);
+        setDuplicateResults([]);
+      }}
+      footer={null}
+      width={720}
+      closeIcon={<X size={18} />}
+      destroyOnClose
+    >
+      <div className="space-y-4">
+        <Alert
+          type="warning"
+          showIcon
+          icon={<AlertTriangle size={16} />}
+          message={`系统检测到 ${duplicateResults.length} 条疑似重复的投诉记录`}
+          description="为提高处理效率，建议您合并到已有投诉。您也可以选择继续创建新投诉。"
+        />
+
+        <div className="max-h-[400px] overflow-y-auto pr-1">
+          <List
+            itemLayout="vertical"
+            dataSource={duplicateResults}
+            renderItem={(item) => {
+              const level = getSimilarityLevel(item.similarity);
+              const color = getSimilarityColor(item.similarity);
+              const label = getSimilarityLabel(item.similarity);
+              return (
+                <List.Item
+                  key={item.complaint.id}
+                  className="border border-gray-200 rounded-lg mb-3 hover:border-orange-300 hover:bg-orange-50/30 transition-colors"
+                  style={{ padding: '16px', marginBottom: '12px' }}
+                >
+                  <div className="w-full">
+                    <div className="flex items-start justify-between gap-3 mb-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-medium text-gray-800 truncate">
+                            {item.complaint.title}
+                          </span>
+                          <Tag
+                            color={level === 'high' ? 'red' : level === 'medium' ? 'orange' : 'green'}
+                            className="m-0 flex-shrink-0"
+                          >
+                            {label}
+                          </Tag>
+                        </div>
+                        <div className="text-xs text-gray-500 flex items-center gap-2 flex-wrap">
+                          <span className="font-mono text-blue-600">{item.complaint.id}</span>
+                          <span>·</span>
+                          <span>{item.complaint.areaName}</span>
+                          <span>·</span>
+                          <span>{item.complaint.categoryName}</span>
+                          <span>·</span>
+                          <span>{item.complaint.createdAt}</span>
+                        </div>
+                      </div>
+                      <div className="flex-shrink-0 text-right">
+                        <div className="text-lg font-bold" style={{ color }}>
+                          {Math.round(item.similarity * 100)}%
+                        </div>
+                        <div className="text-xs text-gray-400">相似度</div>
+                      </div>
+                    </div>
+
+                    <div className="mb-3">
+                      <Progress
+                        percent={Math.round(item.similarity * 100)}
+                        strokeColor={color}
+                        size="small"
+                        showInfo={false}
+                      />
+                    </div>
+
+                    <div className="flex flex-wrap gap-1 mb-3">
+                      {item.matchReasons.map((reason, idx) => (
+                        <Tag key={idx} color="blue" className="m-0 text-xs">
+                          {reason}
+                        </Tag>
+                      ))}
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                      <Tag color={statusColorMap[item.complaint.status]} className="m-0">
+                        {statusMap[item.complaint.status]}
+                      </Tag>
+                      <Button
+                        type="primary"
+                        size="small"
+                        icon={<GitMerge size={14} />}
+                        onClick={() => handleMergeToComplaint(item.complaint)}
+                      >
+                        合并到此投诉
+                      </Button>
+                    </div>
+                  </div>
+                </List.Item>
+              );
+            }}
+          />
+        </div>
+
+        <div className="flex gap-3 pt-3 border-t border-gray-100">
+          <Button
+            block
+            icon={<Plus size={16} />}
+            onClick={handleContinueCreate}
+          >
+            继续创建新投诉
+          </Button>
+          <Button
+            type="primary"
+            block
+            icon={<GitMerge size={16} />}
+            onClick={() => {
+              if (duplicateResults.length > 0) {
+                handleMergeToComplaint(duplicateResults[0].complaint);
+              }
+            }}
+          >
+            合并到最高相似度投诉
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+
+  const QueryForm = () => (
+    <div className="space-y-6">
+      {!queriedComplaint && (
+        <Form form={queryForm} layout="vertical" onFinish={handleQuery}>
+          <Form.Item
+            name="id"
+            label={
+              <span className="flex items-center gap-1">
+                <FileText size={14} className="text-blue-500" />
+                投诉编号
+              </span>
+            }
+            rules={[{ required: true, message: '请输入投诉编号' }]}
+          >
+            <Input
+              placeholder="请输入投诉编号，如 C00061"
+              className="rounded-lg"
+              size="large"
+            />
+          </Form.Item>
+
+          <Form.Item
+            name="phone"
+            label={
+              <span className="flex items-center gap-1">
+                <Phone size={14} className="text-blue-500" />
+                联系电话
+              </span>
+            }
+            rules={[
+              { required: true, message: '请输入联系电话' },
+              { pattern: /^1[3-9]\d{9}$/, message: '请输入正确的手机号' },
+            ]}
+          >
+            <Input
+              placeholder="请输入提交时填写的手机号"
+              className="rounded-lg"
+              size="large"
+              maxLength={11}
+            />
+          </Form.Item>
+
+          <Form.Item className="mb-0 mt-6">
+            <Button
+              type="primary"
+              htmlType="submit"
+              size="large"
+              block
+              className="h-12 rounded-lg font-medium text-base bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 shadow-lg shadow-blue-500/30"
+              icon={<Search size={18} />}
+            >
+              查询进度
+            </Button>
+          </Form.Item>
+        </Form>
+      )}
+
+      {queriedComplaint && (
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <Button
+              type="text"
+              icon={<Home size={16} />}
+              onClick={() => {
+                setQueriedComplaint(null);
+                queryForm.resetFields();
+              }}
+              className="text-gray-600 p-0"
+            >
+              返回查询
+            </Button>
+            <Tag color={getStatusColor(queriedComplaint.status)}>
+              {statusMap[queriedComplaint.status]}
+            </Tag>
+          </div>
+
+          <div>
+            <h3 className="text-lg font-semibold text-gray-800 mb-1">
+              {queriedComplaint.title}
+            </h3>
+            <p className="text-sm text-gray-500">
+              投诉编号：
+              <span className="font-mono text-blue-600">{queriedComplaint.id}</span>
+            </p>
+          </div>
+
+          <Descriptions column={2} size="small" bordered>
+            <Descriptions.Item label="事项分类">
+              {queriedComplaint.categoryName}
+            </Descriptions.Item>
+            <Descriptions.Item label="所属区域">
+              {queriedComplaint.areaName}
+            </Descriptions.Item>
+            <Descriptions.Item label="责任单位" span={2}>
+              {queriedComplaint.departmentName}
+            </Descriptions.Item>
+            <Descriptions.Item label="提交时间">
+              <span className="flex items-center gap-1">
+                <Clock size={12} className="text-gray-400" />
+                {queriedComplaint.createdAt}
+              </span>
+            </Descriptions.Item>
+            <Descriptions.Item label="办理时限">
+              {queriedComplaint.deadline}
+            </Descriptions.Item>
+          </Descriptions>
+
+          <div>
+            <h4 className="font-medium text-gray-700 mb-2 flex items-center gap-2">
+              <FileText size={16} className="text-blue-500" />
+              投诉内容
+            </h4>
+            <p className="text-gray-600 leading-relaxed bg-gray-50 p-4 rounded-lg">
+              {queriedComplaint.content}
+            </p>
+          </div>
+
+          <div>
+            <h4 className="font-medium text-gray-700 mb-3 flex items-center gap-2">
+              <User size={16} className="text-blue-500" />
+              办理时间线
+            </h4>
+            <div className="bg-gray-50 p-4 rounded-lg">
+              <ComplaintTimeline records={queriedComplaint.timelines} />
+            </div>
+          </div>
+
+          <div className="pt-4 border-t border-gray-100">
+            <p className="text-center text-gray-400 text-sm">
+              如有疑问，请拨打服务热线：12345
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  const tabItems = [
+    {
+      key: 'submit',
+      label: (
+        <span className="flex items-center gap-2">
+        <Send size={16} />
+        提交投诉
+      </span>
+      ),
+      children: submitted ? <SuccessView /> : <SubmitForm />,
+    },
+    {
+      key: 'query',
+      label: (
+        <span className="flex items-center gap-2">
+          <Search size={16} />
+          进度查询
+        </span>
+      ),
+      children: <QueryForm />,
+    },
+  ];
+
+  return (
+    <div className="min-h-screen w-full flex items-center justify-center relative overflow-hidden py-8">
+      <div className="absolute inset-0 bg-gradient-to-br from-blue-600 via-blue-700 to-blue-900">
+        <div className="absolute inset-0 opacity-10">
+          <div className="absolute top-20 left-20 w-72 h-72 rounded-full bg-white blur-3xl"></div>
+          <div className="absolute bottom-20 right-20 w-96 h-96 rounded-full bg-blue-300 blur-3xl"></div>
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-blue-400 blur-3xl opacity-20"></div>
+        </div>
+      </div>
+
+      <div className="relative z-10 w-full max-w-2xl px-6">
+        <div className="text-center mb-6">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-white/20 backdrop-blur-sm mb-4">
+            <div className="w-10 h-10 rounded-xl bg-white flex items-center justify-center">
+              <span className="text-2xl font-bold text-blue-600">城</span>
+            </div>
+          </div>
+          <h1 className="text-2xl font-bold text-white mb-2">公众投诉建议平台</h1>
+          <p className="text-blue-200 text-sm">共建美好城市，您的建议我们认真对待</p>
+        </div>
+
+        <Card
+          className="backdrop-blur-lg bg-white/95 shadow-2xl border-0 rounded-2xl"
+          styles={{ body: { padding: '32px' } }}
+        >
+          <Tabs
+            activeKey={activeTab}
+            onChange={handleTabChange}
+            items={tabItems}
+            centered
+            className="mb-0"
+          />
+
+          <div className="mt-6 pt-4 border-t border-gray-100 text-center">
+            <p className="text-gray-400 text-sm">
+              已有管理账号？
+              <Button
+                type="link"
+                size="small"
+                className="text-blue-500 h-auto p-0"
+                onClick={() => navigate('/login')}
+              >
+                前往管理后台登录
+              </Button>
+            </p>
+          </div>
+        </Card>
+
+        <div className="text-center mt-6 text-blue-200 text-xs">
+          © 2024 城市治理投诉建议闭环平台 版权所有
+        </div>
+      </div>
+
+      <DuplicateModal />
+    </div>
+  );
+};
+
+export default PublicSubmit;

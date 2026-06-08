@@ -1,5 +1,5 @@
 import { Form, Input, Button, Card, message } from 'antd';
-import { User, Lock, LogIn } from 'lucide-react';
+import { User, Lock, LogIn, Send, Search } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '@/store/appStore';
 import type { User as UserType } from '@/types';
@@ -103,6 +103,34 @@ const Login: React.FC = () => {
               </div>
             </div>
           </Form>
+
+          <div className="mt-4 pt-4 border-t border-gray-100">
+            <div className="grid grid-cols-2 gap-3">
+              <Button
+                type="default"
+                block
+                size="small"
+                icon={<Send size={14} />}
+                onClick={() => navigate('/submit')}
+                className="text-blue-500 border-blue-200 hover:border-blue-400 hover:text-blue-600"
+              >
+                提交投诉
+              </Button>
+              <Button
+                type="default"
+                block
+                size="small"
+                icon={<Search size={14} />}
+                onClick={() => navigate('/submit?tab=query')}
+                className="text-blue-500 border-blue-200 hover:border-blue-400 hover:text-blue-600"
+              >
+                进度查询
+              </Button>
+            </div>
+            <p className="text-center text-gray-400 text-xs mt-3">
+              我是市民，点击上方按钮进入公众服务
+            </p>
+          </div>
         </Card>
 
         <div className="text-center mt-6 text-blue-200 text-xs">

@@ -13,6 +13,11 @@ import {
   message,
   Tag,
   Divider,
+  Empty,
+  List,
+  Avatar,
+  Progress,
+  Alert,
 } from 'antd';
 import {
   ArrowLeft,
@@ -26,19 +31,105 @@ import {
   MapPin,
   FileText,
   ThumbsUp,
+  BookOpen,
+  Search,
+  Eye,
+  X,
+  Sparkles,
+  Building2,
+  ClipboardList,
+  GitMerge,
+  AlertTriangle,
+  ChevronRight,
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { useAppStore } from '@/store/appStore';
-import type { ExtensionRequest } from '@/types';
+import type { ExtensionRequest, KnowledgeEntry, Department, Complaint } from '@/types';
 import { StatusTag, SourceTag, SatisfactionTag } from '@/components/StatusTags';
 import ComplaintTimeline from '@/components/ComplaintTimeline';
-import { departments } from '@/data/dictionaries';
+import { departments, statusMap, statusColorMap } from '@/data/dictionaries';
+import { getSimilarityColor, getSimilarityLabel, getSimilarityLevel } from '@/lib/utils';
+import type { DuplicateComplaintResult } from '@/types';
+
+interface KnowledgeCardProps {
+  entry: KnowledgeEntry;
+  recommended?: boolean;
+  onSelect: () => void;
+  onView: () => void;
+}
+
+const KnowledgeCard: React.FC<KnowledgeCardProps> = ({ entry, recommended, onSelect, onView }) => {
+  return (
+    <div
+      className={`border rounded-lg p-4 transition-colors group cursor-pointer ${
+        recommended
+          ? 'border-orange-200 bg-orange-50/30 hover:border-orange-400 hover:bg-orange-50/50'
+          : 'border-gray-200 hover:border-blue-400 hover:bg-blue-50/30'
+      }`}
+      onClick={onSelect}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1">
+            <BookOpen size={16} className={recommended ? 'text-orange-500 flex-shrink-0' : 'text-blue-500 flex-shrink-0'} />
+            <span className="font-medium text-gray-800 truncate">{entry.title}</span>
+            {recommended && (
+              <Tag color="orange" className="m-0 text-xs flex-shrink-0">
+                推荐
+              </Tag>
+            )}
+          </div>
+          <div className="flex items-center gap-3 text-xs text-gray-500 mb-2">
+            <span>{entry.categoryName}</span>
+            <span>·</span>
+            <span>{entry.departmentName}</span>
+            <span>·</span>
+            <span className="text-orange-500">使用 {entry.usageCount} 次</span>
+          </div>
+          <p className="text-sm text-gray-600 line-clamp-2 leading-relaxed">
+            {entry.content}
+          </p>
+          <div className="flex flex-wrap gap-1 mt-2">
+            {entry.keywords.slice(0, 4).map((kw, idx) => (
+              <Tag key={idx} color="blue" className="m-0 text-xs">
+                {kw}
+              </Tag>
+            ))}
+          </div>
+        </div>
+        <div className="flex-shrink-0 flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+          <Button
+            type="text"
+            size="small"
+            icon={<Eye size={14} />}
+            onClick={(e) => {
+              e.stopPropagation();
+              onView();
+            }}
+          >
+            预览
+          </Button>
+          <Button
+            type="primary"
+            size="small"
+            onClick={(e) => {
+              e.stopPropagation();
+              onSelect();
+            }}
+          >
+            选用
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const ComplaintDetail: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
-  const { getComplaintById, updateComplaint, addTimeline, addExtensionRequest } = useAppStore();
+  const { getComplaintById, updateComplaint, addTimeline, addExtensionRequest, knowledgeEntries, incrementKnowledgeUsage, getRepeatGroup, mergeComplaint, detectDuplicates } = useAppStore();
   const complaint = getComplaintById(id || '');
 
   const [transferModalVisible, setTransferModalVisible] = useState(false);
@@ -47,7 +138,32 @@ const ComplaintDetail: React.FC = () => {
   const [urgeModalVisible, setUrgeModalVisible] = useState(false);
   const [reviewModalVisible, setReviewModalVisible] = useState(false);
   const [processModalVisible, setProcessModalVisible] = useState(false);
+  const [knowledgeModalVisible, setKnowledgeModalVisible] = useState(false);
+  const [knowledgeDetailVisible, setKnowledgeDetailVisible] = useState(false);
+  const [knowledgeDetailEntry, setKnowledgeDetailEntry] = useState<KnowledgeEntry | null>(null);
+  const [knowledgeSearch, setKnowledgeSearch] = useState('');
+  const [selectedTransferDept, setSelectedTransferDept] = useState<Department | null>(null);
+  const [repeatGroupVisible, setRepeatGroupVisible] = useState(false);
+  const [mergeModalVisible, setMergeModalVisible] = useState(false);
+  const [mergeTargetId, setMergeTargetId] = useState<string>('');
   const [form] = Form.useForm();
+
+  const repeatGroup = complaint?.repeatGroupId
+    ? getRepeatGroup(complaint.repeatGroupId)
+    : [];
+
+  const similarComplaints = complaint
+    ? detectDuplicates(
+        {
+          title: complaint.title,
+          categoryId: complaint.categoryId,
+          areaId: complaint.areaId,
+          address: complaint.address,
+          contactPhone: complaint.contactPhone,
+        },
+        complaint.id
+      ).slice(0, 5)
+    : [];
 
   if (!complaint) {
     return (
@@ -77,7 +193,26 @@ const ComplaintDetail: React.FC = () => {
     });
     message.success('转办成功');
     setTransferModalVisible(false);
+    setSelectedTransferDept(null);
     form.resetFields();
+  };
+
+  const handleDeptChange = (deptId: string) => {
+    const dept = departments.find((d) => d.id === deptId);
+    setSelectedTransferDept(dept || null);
+  };
+
+  const getTypeTagColor = (type: string) => {
+    switch (type) {
+      case '综合部门':
+        return 'blue';
+      case '专业部门':
+        return 'green';
+      case '执法部门':
+        return 'red';
+      default:
+        return 'default';
+    }
   };
 
   const handleReturn = (values: { reason: string }) => {
@@ -187,6 +322,55 @@ const ComplaintDetail: React.FC = () => {
     form.resetFields();
   };
 
+  const activeKnowledgeEntries = knowledgeEntries.filter((k) => k.status === 'active');
+
+  const filteredKnowledgeEntries = activeKnowledgeEntries.filter((k) => {
+    if (knowledgeSearch) {
+      const keyword = knowledgeSearch.toLowerCase();
+      const matchTitle = k.title.toLowerCase().includes(keyword);
+      const matchContent = k.content.toLowerCase().includes(keyword);
+      const matchKeywords = k.keywords.some(kw => kw.toLowerCase().includes(keyword));
+      const matchCategory = k.categoryName.toLowerCase().includes(keyword);
+      if (!matchTitle && !matchContent && !matchKeywords && !matchCategory) return false;
+    }
+    return true;
+  });
+
+  const recommendedEntries = activeKnowledgeEntries.filter((k) => {
+    return k.categoryId === complaint?.categoryId || k.categoryId.startsWith(complaint?.categoryId?.split('-')[0] || '');
+  }).sort((a, b) => b.usageCount - a.usageCount);
+
+  const handleSelectKnowledge = (entry: KnowledgeEntry) => {
+    form.setFieldsValue({ content: entry.content });
+    incrementKnowledgeUsage(entry.id);
+    setKnowledgeModalVisible(false);
+    setKnowledgeDetailVisible(false);
+    setKnowledgeSearch('');
+    message.success('已插入知识库模板');
+  };
+
+  const handleViewKnowledge = (entry: KnowledgeEntry) => {
+    setKnowledgeDetailEntry(entry);
+    setKnowledgeDetailVisible(true);
+  };
+
+  const handleMergeToComplaint = (targetId: string) => {
+    Modal.confirm({
+      title: '确认合并投诉',
+      content: `确定要将当前投诉合并到投诉 ${targetId} 吗？合并后两条投诉将关联为重复投诉。`,
+      okText: '确认合并',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: () => {
+        if (complaint) {
+          mergeComplaint(complaint.id, targetId, '督办员');
+          message.success('投诉合并成功');
+          setMergeModalVisible(false);
+        }
+      },
+    });
+  };
+
   const isOverdue = dayjs().isAfter(dayjs(complaint.deadline)) && complaint.status !== 'completed';
 
   return (
@@ -203,12 +387,22 @@ const ComplaintDetail: React.FC = () => {
           </Button>
           <h2 className="text-lg font-semibold text-gray-800">投诉详情</h2>
           <StatusTag status={complaint.status} />
-          {complaint.isRepeat && <Tag color="orange">重复投诉</Tag>}
+          {complaint.isRepeat && repeatGroup.length > 0 && (
+            <Tag color="pink" icon={<GitMerge size={12} />} className="cursor-pointer" onClick={() => setRepeatGroupVisible(true)}>
+              重复投诉 ({repeatGroup.length}件)
+            </Tag>
+          )}
           {isOverdue && complaint.status !== 'completed' && (
             <Tag color="red">已超期</Tag>
           )}
         </div>
         <Space>
+          <Button
+            icon={<GitMerge size={14} />}
+            onClick={() => setMergeModalVisible(true)}
+          >
+            合并投诉
+          </Button>
           {complaint.status === 'processing' && (
             <>
               <Button icon={<Send size={14} />} onClick={() => setTransferModalVisible(true)}>
@@ -263,6 +457,16 @@ const ComplaintDetail: React.FC = () => {
               <Descriptions.Item label="办理状态">
                 <StatusTag status={complaint.status} />
               </Descriptions.Item>
+              <Descriptions.Item label="派单方式">
+                <Tag color={complaint.assignSource === 'auto' ? 'green' : 'orange'}>
+                  {complaint.assignSource === 'auto' ? '智能派单' : '人工派单'}
+                </Tag>
+              </Descriptions.Item>
+              {complaint.dispatchRuleName && (
+                <Descriptions.Item label="匹配规则">
+                  <span className="text-blue-600">{complaint.dispatchRuleName}</span>
+                </Descriptions.Item>
+              )}
               <Descriptions.Item label="受理时间">
                 {complaint.createdAt}
               </Descriptions.Item>
@@ -285,6 +489,20 @@ const ComplaintDetail: React.FC = () => {
                 <Descriptions.Item label="催办次数">
                   <Tag color="orange">{complaint.urgeCount} 次</Tag>
                 </Descriptions.Item>
+              )}
+              {complaint.isRepeat && repeatGroup.length > 0 && (
+                <>
+                  <Descriptions.Item label="重复投诉">
+                    <Tag color="pink" icon={<GitMerge size={10} />}>是 ({repeatGroup.length} 件)</Tag>
+                  </Descriptions.Item>
+                  {complaint.repeatGroupId && (
+                    <Descriptions.Item label="重复组号">
+                      <span className="font-mono text-blue-600 cursor-pointer hover:underline" onClick={() => setRepeatGroupVisible(true)}>
+                        {complaint.repeatGroupId}
+                      </span>
+                    </Descriptions.Item>
+                  )}
+                </>
               )}
             </Descriptions>
 
@@ -332,18 +550,145 @@ const ComplaintDetail: React.FC = () => {
         </Col>
 
         <Col xs={24} lg={8}>
-          <Card title={<span className="font-semibold">办理时间线</span>} className="shadow-sm">
+          <Card title={<span className="font-semibold">办理时间线</span>} className="shadow-sm mb-4">
             <ComplaintTimeline records={complaint.timelines} />
           </Card>
+
+          {complaint.isRepeat && repeatGroup.length > 0 && (
+            <Card
+              title={
+                <span className="font-semibold flex items-center gap-2">
+                  <GitMerge size={16} className="text-pink-500" />
+                  关联重复投诉 ({repeatGroup.length})
+                </span>
+              }
+              className="shadow-sm"
+              size="small"
+            >
+              <List
+                size="small"
+                dataSource={repeatGroup}
+                renderItem={(item) => (
+                  <List.Item
+                    key={item.id}
+                    className="cursor-pointer hover:bg-gray-50 -mx-2 px-2 rounded"
+                    onClick={() => navigate(`/complaints/${item.id}`)}
+                  >
+                    <div className="w-full">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-sm text-gray-800 truncate flex-1">
+                          {item.title}
+                        </span>
+                        {item.id === complaint.id && (
+                          <Tag color="blue" className="m-0 text-xs">
+                            当前
+                          </Tag>
+                        )}
+                      </div>
+                      <div className="text-xs text-gray-400 flex items-center gap-1 mt-1">
+                        <span className="font-mono">{item.id}</span>
+                        <span>·</span>
+                        <Tag color={statusColorMap[item.status]} className="m-0" style={{ fontSize: '10px', padding: '0 4px' }}>
+                          {statusMap[item.status]}
+                        </Tag>
+                      </div>
+                    </div>
+                  </List.Item>
+                )}
+              />
+            </Card>
+          )}
+
+          {similarComplaints.length > 0 && (
+            <Card
+              title={
+                <span className="font-semibold flex items-center gap-2">
+                  <AlertTriangle size={16} className="text-orange-500" />
+                  疑似相似投诉
+                </span>
+              }
+              className="shadow-sm mt-4"
+              size="small"
+            >
+              <List
+                size="small"
+                dataSource={similarComplaints}
+                renderItem={(item: DuplicateComplaintResult) => {
+                  const level = getSimilarityLevel(item.similarity);
+                  const color = getSimilarityColor(item.similarity);
+                  const label = getSimilarityLabel(item.similarity);
+                  return (
+                    <List.Item
+                      key={item.complaint.id}
+                      className="hover:bg-gray-50 -mx-2 px-2 rounded mb-2 last:mb-0"
+                      style={{ padding: '8px 8px' }}
+                    >
+                      <div className="w-full">
+                        <div className="flex items-start justify-between gap-2 mb-1">
+                          <div
+                            className="text-sm text-gray-800 truncate flex-1 cursor-pointer hover:text-blue-600"
+                            onClick={() => navigate(`/complaints/${item.complaint.id}`)}
+                          >
+                            {item.complaint.title}
+                          </div>
+                          <div className="text-right flex-shrink-0">
+                            <div className="text-sm font-bold" style={{ color }}>
+                              {Math.round(item.similarity * 100)}%
+                            </div>
+                          </div>
+                        </div>
+                        <Progress
+                          percent={Math.round(item.similarity * 100)}
+                          strokeColor={color}
+                          size="small"
+                          showInfo={false}
+                          className="mb-1"
+                        />
+                        <div className="text-xs text-gray-400 mb-1 flex items-center gap-1 flex-wrap">
+                          <span className="font-mono text-blue-600">{item.complaint.id}</span>
+                          <span>·</span>
+                          <span>{item.complaint.areaName}</span>
+                          <Tag color={statusColorMap[item.complaint.status]} className="m-0 ml-1" style={{ fontSize: '10px', padding: '0 4px' }}>
+                            {statusMap[item.complaint.status]}
+                          </Tag>
+                        </div>
+                        <div className="flex flex-wrap gap-1 mb-2">
+                          {item.matchReasons.slice(0, 2).map((reason, idx) => (
+                            <Tag key={idx} color="blue" className="m-0 text-xs">
+                              {reason}
+                            </Tag>
+                          ))}
+                        </div>
+                        <div className="flex justify-end">
+                          <Button
+                            size="small"
+                            type="primary"
+                            danger={level === 'high'}
+                            icon={<GitMerge size={12} />}
+                            onClick={() => handleMergeToComplaint(item.complaint.id)}
+                          >
+                            合并
+                          </Button>
+                        </div>
+                      </div>
+                    </List.Item>
+                  );
+                }}
+              />
+            </Card>
+          )}
         </Col>
       </Row>
 
       <Modal
         title="转办工单"
         open={transferModalVisible}
-        onCancel={() => setTransferModalVisible(false)}
+        onCancel={() => {
+          setTransferModalVisible(false);
+          setSelectedTransferDept(null);
+        }}
         footer={null}
-        width={520}
+        width={600}
       >
         <Form form={form} layout="vertical" onFinish={handleTransfer}>
           <Form.Item
@@ -351,7 +696,12 @@ const ComplaintDetail: React.FC = () => {
             name="departmentId"
             rules={[{ required: true, message: '请选择责任单位' }]}
           >
-            <Select placeholder="请选择责任单位">
+            <Select
+              placeholder="请选择责任单位"
+              onChange={handleDeptChange}
+              showSearch
+              optionFilterProp="children"
+            >
               {departments.map((d) => (
                 <Select.Option key={d.id} value={d.id}>
                   {d.name}
@@ -359,6 +709,56 @@ const ComplaintDetail: React.FC = () => {
               ))}
             </Select>
           </Form.Item>
+
+          {selectedTransferDept && (
+            <div className="mb-4 p-4 bg-blue-50/60 rounded-lg border border-blue-100">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
+                  <Building2 size={22} className="text-blue-500" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium text-gray-800">
+                    {selectedTransferDept.name}
+                  </div>
+                  <Tag color={getTypeTagColor(selectedTransferDept.type)} className="m-0 mt-1">
+                    {selectedTransferDept.type}
+                  </Tag>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-sm text-gray-600">
+                {selectedTransferDept.contact && (
+                  <div className="flex items-center gap-1.5">
+                    <User size={13} className="text-gray-400 flex-shrink-0" />
+                    <span className="truncate">联系人：{selectedTransferDept.contact}</span>
+                  </div>
+                )}
+                {selectedTransferDept.phone && (
+                  <div className="flex items-center gap-1.5">
+                    <Phone size={13} className="text-gray-400 flex-shrink-0" />
+                    <span className="font-mono">电话：{selectedTransferDept.phone}</span>
+                  </div>
+                )}
+              </div>
+              {selectedTransferDept.address && (
+                <div className="flex items-center gap-1.5 text-sm text-gray-600 mt-1">
+                  <MapPin size={13} className="text-gray-400 flex-shrink-0" />
+                  <span className="truncate">地址：{selectedTransferDept.address}</span>
+                </div>
+              )}
+              {selectedTransferDept.responsibilities && (
+                <div className="mt-3 pt-3 border-t border-blue-200">
+                  <div className="flex items-center gap-1.5 text-xs text-gray-500 mb-1.5">
+                    <ClipboardList size={12} />
+                    <span>主要职责</span>
+                  </div>
+                  <p className="text-sm text-gray-600 leading-relaxed">
+                    {selectedTransferDept.responsibilities}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
           <Form.Item
             label="转办原因"
             name="reason"
@@ -371,7 +771,10 @@ const ComplaintDetail: React.FC = () => {
               <Button type="primary" htmlType="submit">
                 确认转办
               </Button>
-              <Button onClick={() => setTransferModalVisible(false)}>取消</Button>
+              <Button onClick={() => {
+                setTransferModalVisible(false);
+                setSelectedTransferDept(null);
+              }}>取消</Button>
             </Space>
           </Form.Item>
         </Form>
@@ -513,12 +916,22 @@ const ComplaintDetail: React.FC = () => {
         width={600}
       >
         <Form form={form} layout="vertical" onFinish={handleProcess}>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-sm font-medium text-gray-700">办理结果</label>
+            <Button
+              type="link"
+              size="small"
+              icon={<BookOpen size={14} />}
+              onClick={() => setKnowledgeModalVisible(true)}
+            >
+              从知识库选择模板
+            </Button>
+          </div>
           <Form.Item
-            label="办理结果"
             name="content"
             rules={[{ required: true, message: '请输入办理结果' }]}
           >
-            <Input.TextArea rows={6} placeholder="请详细描述办理过程和结果" />
+            <Input.TextArea rows={6} placeholder="请详细描述办理过程和结果，或点击上方从知识库选择模板" />
           </Form.Item>
           <Form.Item label="附件上传" name="files">
             <div className="border-2 border-dashed border-gray-200 rounded-lg p-8 text-center text-gray-400 hover:border-blue-300 transition-colors cursor-pointer">
@@ -536,6 +949,346 @@ const ComplaintDetail: React.FC = () => {
             </Space>
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        title="选择知识库模板"
+        open={knowledgeModalVisible}
+        onCancel={() => {
+          setKnowledgeModalVisible(false);
+          setKnowledgeSearch('');
+        }}
+        footer={null}
+        width={760}
+        destroyOnClose
+      >
+        <div className="space-y-4">
+          <Input
+            placeholder="搜索标题、内容、关键词、分类"
+            prefix={<Search size={16} className="text-gray-400" />}
+            value={knowledgeSearch}
+            onChange={(e) => setKnowledgeSearch(e.target.value)}
+            allowClear
+            autoFocus
+          />
+
+          <div className="max-h-[500px] overflow-y-auto pr-1 space-y-5">
+            {knowledgeSearch ? (
+              <>
+                <div className="text-sm font-medium text-gray-700">
+                  搜索结果（{filteredKnowledgeEntries.length} 条）
+                </div>
+                {filteredKnowledgeEntries.length === 0 ? (
+                  <Empty description="暂无匹配的知识条目" />
+                ) : (
+                  <div className="space-y-2">
+                    {filteredKnowledgeEntries.map((entry) => (
+                      <KnowledgeCard
+                        key={entry.id}
+                        entry={entry}
+                        onSelect={() => handleSelectKnowledge(entry)}
+                        onView={() => handleViewKnowledge(entry)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                {recommendedEntries.length > 0 && (
+                  <div>
+                    <div className="flex items-center gap-2 mb-3">
+                      <Sparkles size={16} className="text-orange-500" />
+                      <span className="text-sm font-medium text-gray-700">
+                        推荐模板
+                      </span>
+                      <span className="text-xs text-gray-400">
+                        （基于当前投诉分类推荐）
+                      </span>
+                    </div>
+                    <div className="space-y-2">
+                      {recommendedEntries.slice(0, 5).map((entry) => (
+                        <KnowledgeCard
+                          key={entry.id}
+                          entry={entry}
+                          recommended
+                          onSelect={() => handleSelectKnowledge(entry)}
+                          onView={() => handleViewKnowledge(entry)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <div className="text-sm font-medium text-gray-700 mb-3">
+                    全部模板（{activeKnowledgeEntries.length} 条）
+                  </div>
+                  <div className="space-y-2">
+                    {activeKnowledgeEntries.map((entry) => (
+                      <KnowledgeCard
+                        key={entry.id}
+                        entry={entry}
+                        onSelect={() => handleSelectKnowledge(entry)}
+                        onView={() => handleViewKnowledge(entry)}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        title={
+          <div className="flex items-center gap-2">
+            <BookOpen size={20} className="text-blue-500" />
+            <span>模板详情</span>
+          </div>
+        }
+        open={knowledgeDetailVisible}
+        onCancel={() => setKnowledgeDetailVisible(false)}
+        footer={null}
+        width={640}
+        destroyOnClose
+        closeIcon={<X size={18} />}
+      >
+        {knowledgeDetailEntry && (
+          <div className="space-y-4">
+            <div>
+              <h3 className="text-base font-semibold text-gray-800 mb-1">
+                {knowledgeDetailEntry.title}
+              </h3>
+              <div className="flex items-center gap-3 text-xs text-gray-500">
+                <span className="font-mono text-blue-600">{knowledgeDetailEntry.id}</span>
+                <span>{knowledgeDetailEntry.categoryName}</span>
+                <span>·</span>
+                <span>{knowledgeDetailEntry.departmentName}</span>
+                <span>·</span>
+                <span className="text-orange-500">使用 {knowledgeDetailEntry.usageCount} 次</span>
+              </div>
+            </div>
+
+            <Divider className="my-0" />
+
+            <div>
+              <div className="text-sm text-gray-500 mb-2">关键词</div>
+              <Space wrap size={[6, 6]}>
+                {knowledgeDetailEntry.keywords.map((kw, idx) => (
+                  <Tag key={idx} color="blue">
+                    {kw}
+                  </Tag>
+                ))}
+              </Space>
+            </div>
+
+            <div>
+              <div className="text-sm text-gray-500 mb-2">处理口径内容</div>
+              <div className="bg-gray-50 rounded-lg p-4 text-gray-700 leading-relaxed whitespace-pre-wrap text-sm">
+                {knowledgeDetailEntry.content}
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <Button onClick={() => setKnowledgeDetailVisible(false)}>关闭</Button>
+              <Button
+                type="primary"
+                onClick={() => handleSelectKnowledge(knowledgeDetailEntry)}
+              >
+                使用此模板
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        title={
+          <div className="flex items-center gap-2">
+            <GitMerge size={20} className="text-pink-500" />
+            <span>合并投诉</span>
+          </div>
+        }
+        open={mergeModalVisible}
+        onCancel={() => {
+          setMergeModalVisible(false);
+          setMergeTargetId('');
+        }}
+        footer={null}
+        width={720}
+        destroyOnClose
+        closeIcon={<X size={18} />}
+      >
+        <div className="space-y-4">
+          <Alert
+            type="info"
+            showIcon
+            message="选择要合并到的目标投诉"
+            description="合并后，当前投诉将作为重复投诉与目标投诉关联，不影响目标投诉的处理状态。"
+          />
+
+          <div>
+            <div className="text-sm font-medium text-gray-700 mb-2">推荐的相似投诉</div>
+            {similarComplaints.length > 0 ? (
+              <List
+                size="small"
+                dataSource={similarComplaints}
+                renderItem={(item) => (
+                  <List.Item
+                    key={item.complaint.id}
+                    className={`border rounded-lg mb-2 cursor-pointer transition-colors ${
+                      mergeTargetId === item.complaint.id
+                        ? 'border-pink-400 bg-pink-50'
+                        : 'border-gray-200 hover:border-pink-300 hover:bg-pink-50/50'
+                    }`}
+                    style={{ padding: '12px' }}
+                    onClick={() => setMergeTargetId(item.complaint.id)}
+                  >
+                    <div className="w-full">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="font-medium text-gray-800 truncate">
+                              {item.complaint.title}
+                            </span>
+                            <Tag color={statusColorMap[item.complaint.status]} className="m-0 text-xs">
+                              {statusMap[item.complaint.status]}
+                            </Tag>
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            <span className="font-mono text-blue-600">{item.complaint.id}</span>
+                            <span className="mx-1">·</span>
+                            <span>{item.complaint.areaName}</span>
+                            <span className="mx-1">·</span>
+                            <span>{item.complaint.createdAt}</span>
+                          </div>
+                        </div>
+                        <div className="flex-shrink-0 text-right">
+                          <div
+                            className="text-sm font-bold"
+                            style={{
+                              color: item.similarity >= 0.7 ? '#f5222d' : '#fa8c16',
+                            }}
+                          >
+                            {Math.round(item.similarity * 100)}%
+                          </div>
+                          <div className="text-xs text-gray-400">相似度</div>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {item.matchReasons.map((reason, idx) => (
+                          <Tag key={idx} color="blue" className="m-0 text-xs">
+                            {reason}
+                          </Tag>
+                        ))}
+                      </div>
+                    </div>
+                  </List.Item>
+                )}
+              />
+            ) : (
+              <Empty description="暂无相似投诉" />
+            )}
+          </div>
+
+          <div className="pt-3 border-t border-gray-100">
+            <div className="text-sm font-medium text-gray-700 mb-2">或手动输入投诉编号</div>
+            <div className="flex gap-2">
+              <Input
+                placeholder="请输入目标投诉编号"
+                value={mergeTargetId}
+                onChange={(e) => setMergeTargetId(e.target.value.toUpperCase())}
+                allowClear
+              />
+              <Button
+                type="primary"
+                danger
+                icon={<GitMerge size={14} />}
+                disabled={!mergeTargetId || mergeTargetId === complaint?.id}
+                onClick={() => mergeTargetId && handleMergeToComplaint(mergeTargetId)}
+              >
+                合并
+              </Button>
+            </div>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        title={
+          <div className="flex items-center gap-2">
+            <GitMerge size={20} className="text-pink-500" />
+            <span>重复投诉组详情</span>
+          </div>
+        }
+        open={repeatGroupVisible}
+        onCancel={() => setRepeatGroupVisible(false)}
+        footer={null}
+        width={720}
+        destroyOnClose
+        closeIcon={<X size={18} />}
+      >
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm text-gray-500">重复组号</div>
+              <div className="text-lg font-semibold text-gray-800 font-mono">
+                {complaint?.repeatGroupId}
+              </div>
+            </div>
+            <Tag color="pink" className="m-0">
+              共 {repeatGroup.length} 件
+            </Tag>
+          </div>
+
+          <List
+            dataSource={repeatGroup}
+            renderItem={(item) => (
+              <List.Item
+                key={item.id}
+                className="border border-gray-200 rounded-lg mb-2 hover:border-blue-300 cursor-pointer transition-colors"
+                style={{ padding: '12px' }}
+                onClick={() => {
+                  navigate(`/complaints/${item.id}`);
+                  setRepeatGroupVisible(false);
+                }}
+              >
+                <div className="w-full flex items-center gap-3">
+                  <Avatar
+                    size={40}
+                    style={{ backgroundColor: item.id === complaint?.id ? '#1890ff' : '#d9d9d9' }}
+                    icon={<FileText size={18} />}
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="font-medium text-gray-800 truncate">
+                        {item.title}
+                      </span>
+                      {item.id === complaint?.id && (
+                        <Tag color="blue" className="m-0 text-xs">
+                          当前
+                        </Tag>
+                      )}
+                      <Tag color={statusColorMap[item.status]} className="m-0 text-xs">
+                        {statusMap[item.status]}
+                      </Tag>
+                    </div>
+                    <div className="text-xs text-gray-500 flex items-center gap-2">
+                      <span className="font-mono">{item.id}</span>
+                      <span>·</span>
+                      <span>{item.areaName}</span>
+                      <span>·</span>
+                      <span>{item.createdAt}</span>
+                    </div>
+                  </div>
+                  <ChevronRight size={16} className="text-gray-400 flex-shrink-0" />
+                </div>
+              </List.Item>
+            )}
+          />
+        </div>
       </Modal>
     </div>
   );

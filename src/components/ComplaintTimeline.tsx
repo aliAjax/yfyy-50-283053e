@@ -1,4 +1,4 @@
-import { Timeline } from 'antd';
+import { Timeline, Tag } from 'antd';
 import {
   FileCheck2,
   Send,
@@ -12,9 +12,13 @@ import {
   ThumbsUp,
   ThumbsDown,
   Phone,
+  Zap,
+  User,
+  GitMerge,
+  GitBranch,
 } from 'lucide-react';
 import type { TimelineRecord, TimelineType } from '@/types';
-import { timelineTypeMap } from '@/data/dictionaries';
+import { timelineTypeMap, assignSourceMap } from '@/data/dictionaries';
 
 const iconMap: Record<TimelineType, React.ReactNode> = {
   accept: <FileCheck2 size={16} />,
@@ -30,6 +34,8 @@ const iconMap: Record<TimelineType, React.ReactNode> = {
   review: <CheckCircle2 size={16} />,
   followup: <Phone size={16} />,
   complete: <Archive size={16} />,
+  merge: <GitMerge size={16} />,
+  merged_into: <GitBranch size={16} />,
 };
 
 const colorMap: Record<TimelineType, string> = {
@@ -46,6 +52,8 @@ const colorMap: Record<TimelineType, string> = {
   review: '#52c41a',
   followup: '#13c2c2',
   complete: '#1890ff',
+  merge: '#eb2f96',
+  merged_into: '#eb2f96',
 };
 
 interface ComplaintTimelineProps {
@@ -65,11 +73,20 @@ const ComplaintTimeline: React.FC<ComplaintTimelineProps> = ({ records }) => {
     ),
     children: (
       <div className="pb-4">
-        <div className="flex items-center gap-2 mb-1">
+        <div className="flex items-center gap-2 mb-1 flex-wrap">
           <span className="font-medium text-gray-800 text-sm">
             {timelineTypeMap[record.type]}
           </span>
           <span className="text-xs text-gray-400">{record.operator}</span>
+          {record.type === 'assign' && record.assignSource && (
+            <Tag
+              color={record.assignSource === 'auto' ? 'green' : 'orange'}
+              className="m-0 text-xs"
+              icon={record.assignSource === 'auto' ? <Zap size={10} /> : <User size={10} />}
+            >
+              {assignSourceMap[record.assignSource]}
+            </Tag>
+          )}
         </div>
         <p className="text-gray-600 text-sm mb-1">{record.content}</p>
         {record.remark && (

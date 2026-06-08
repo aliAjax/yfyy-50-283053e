@@ -9,6 +9,9 @@ import type {
   ComplaintSource,
   ComplaintStatus,
   ExtensionRequest,
+  Notification,
+  KnowledgeEntry,
+  DispatchRule,
 } from '@/types';
 import { categories, areas, departments } from './dictionaries';
 
@@ -40,7 +43,9 @@ const complaintTitles = [
 const generateTimelines = (
   complaintId: string,
   status: ComplaintStatus,
-  createdAt: string
+  createdAt: string,
+  departmentName: string,
+  assignSource: 'auto' | 'manual' = 'auto'
 ): TimelineRecord[] => {
   const timelines: TimelineRecord[] = [];
   let currentTime = dayjs(createdAt);
@@ -59,9 +64,12 @@ const generateTimelines = (
     id: `${complaintId}-t2`,
     complaintId,
     type: 'assign',
-    operator: '智能派单系统',
-    content: '根据区域和分类自动派单至责任单位',
+    operator: assignSource === 'auto' ? '智能派单系统' : '人工派单',
+    content: assignSource === 'auto'
+      ? `根据区域和分类自动派单至${departmentName}`
+      : `人工派单至${departmentName}`,
     createdAt: currentTime.format('YYYY-MM-DD HH:mm:ss'),
+    assignSource,
   });
 
   if (status === 'processing' || status === 'pending_review' || status === 'completed' || status === 'returned' || status === 'overdue') {
@@ -186,7 +194,17 @@ const generateComplaint = (index: number): Complaint => {
     satisfaction = Random.integer(3, 5);
   }
 
-  const timelines = generateTimelines(`C${String(index + 1).padStart(5, '0')}`, status, createdAt);
+  const assignSource: 'auto' | 'manual' = Random.boolean(0.85) ? 'auto' : 'manual';
+  const dispatchRuleId = assignSource === 'auto' ? `DR${String(Random.integer(1, 24)).padStart(4, '0')}` : undefined;
+  const dispatchRuleName = dispatchRuleId ? `${area.name}${category.name}派单规则` : undefined;
+
+  const timelines = generateTimelines(
+    `C${String(index + 1).padStart(5, '0')}`,
+    status,
+    createdAt,
+    department.name,
+    assignSource
+  );
 
   return {
     id: `C${String(index + 1).padStart(5, '0')}`,
@@ -210,6 +228,9 @@ const generateComplaint = (index: number): Complaint => {
     isRepeat: Random.boolean(0.15),
     urgeCount: Random.integer(0, 3),
     timelines,
+    assignSource,
+    dispatchRuleId,
+    dispatchRuleName,
   };
 };
 
@@ -348,4 +369,303 @@ export const generateExtensionRequests = (complaints: Complaint[]): ExtensionReq
   return requests.sort((a, b) =>
     dayjs(b.createdAt).valueOf() - dayjs(a.createdAt).valueOf()
   );
+};
+
+export const generateNotifications = (
+  complaints: Complaint[],
+  extensionRequests: ExtensionRequest[]
+): Notification[] => {
+  const notifications: Notification[] = [];
+  let idCounter = 1;
+
+  complaints.forEach((complaint) => {
+    complaint.timelines.forEach((timeline) => {
+      let type: Notification['type'] | null = null;
+      let title = '';
+      let content = '';
+
+      switch (timeline.type) {
+        case 'urge':
+          type = 'urge';
+          title = '催办通知';
+          content = `投诉「${complaint.title}」已被催办，请加快办理进度`;
+          break;
+        case 'return':
+          type = 'return';
+          title = '退回重办';
+          content = `投诉「${complaint.title}」已被退回重办，原因：${timeline.content.replace('退回重办，原因：', '')}`;
+          break;
+        case 'review':
+          type = 'review_pass';
+          title = '审核通过';
+          content = `投诉「${complaint.title}」审核通过，已办结归档`;
+          break;
+        case 'delay_approve':
+          type = 'delay_approve';
+          title = '延期申请通过';
+          content = `投诉「${complaint.title}」的延期申请已通过`;
+          break;
+        case 'delay_reject':
+          type = 'delay_reject';
+          title = '延期申请驳回';
+          content = `投诉「${complaint.title}」的延期申请已被驳回`;
+          break;
+        default:
+          break;
+      }
+
+      if (type) {
+        const extRequest = extensionRequests.find(
+          (r) => r.complaintId === complaint.id && (type === 'delay_approve' || type === 'delay_reject')
+        );
+
+        notifications.push({
+          id: `NOTIF${String(idCounter++).padStart(5, '0')}`,
+          type,
+          title,
+          content,
+          complaintId: complaint.id,
+          extensionRequestId: extRequest?.id,
+          isRead: dayjs(timeline.createdAt).isBefore(dayjs().subtract(3, 'day')),
+          createdAt: timeline.createdAt,
+        });
+      }
+    });
+  });
+
+  extensionRequests.forEach((request) => {
+    const complaint = complaints.find((c) => c.id === request.complaintId);
+    if (!complaint) return;
+
+    notifications.push({
+      id: `NOTIF${String(idCounter++).padStart(5, '0')}`,
+      type: 'delay_request',
+      title: '延期申请待审批',
+      content: `${request.departmentName} 提交了投诉「${complaint.title}」的延期申请，申请延期 ${request.days} 天`,
+      complaintId: request.complaintId,
+      extensionRequestId: request.id,
+      isRead: request.status !== 'pending' || dayjs(request.createdAt).isBefore(dayjs().subtract(2, 'day')),
+      createdAt: request.createdAt,
+    });
+  });
+
+  const recentComplaints = complaints
+    .filter((c) => dayjs(c.createdAt).isAfter(dayjs().subtract(7, 'day')))
+    .slice(0, 5);
+
+  recentComplaints.forEach((complaint) => {
+    notifications.push({
+      id: `NOTIF${String(idCounter++).padStart(5, '0')}`,
+      type: 'new_complaint',
+      title: '新投诉提醒',
+      content: `收到新投诉「${complaint.title}」，来自${complaint.areaName}`,
+      complaintId: complaint.id,
+      isRead: dayjs(complaint.createdAt).isBefore(dayjs().subtract(1, 'day')),
+      createdAt: complaint.createdAt,
+    });
+  });
+
+  return notifications.sort(
+    (a, b) => dayjs(b.createdAt).valueOf() - dayjs(a.createdAt).valueOf()
+  );
+};
+
+const knowledgeTemplates = [
+  {
+    title: '占道经营投诉处理口径',
+    content: '尊敬的市民，您好！关于您反映的占道经营问题，我们已安排执法人员前往现场进行整治。具体处理措施如下：\n1. 对占道经营商户进行宣传教育，告知相关法律法规；\n2. 对拒不整改的商户依法暂扣经营物品并予以处罚；\n3. 建立长效巡查机制，加大该区域巡查频次。\n感谢您对城市管理工作的监督与支持！',
+    category: 'c1-3',
+    dept: 'd1',
+    keywords: ['占道经营', '摆摊', '市容', '整治'],
+  },
+  {
+    title: '噪音污染投诉处理口径',
+    content: '尊敬的市民，您好！关于您反映的噪音扰民问题，我们已安排工作人员现场核查处理。具体情况如下：\n1. 已对噪音源单位下达整改通知书，责令采取降噪措施；\n2. 要求施工单位严格遵守施工作业时间，禁止夜间违规施工；\n3. 后续将加强巡查，确保整改措施落实到位。\n如仍有问题，欢迎您继续监督反馈！',
+    category: 'c3-1',
+    dept: 'd3',
+    keywords: ['噪音', '扰民', '施工', '降噪'],
+  },
+  {
+    title: '垃圾清运投诉处理口径',
+    content: '尊敬的市民，您好！关于您反映的垃圾清运不及时问题，我们已协调环卫部门进行处理。具体措施如下：\n1. 立即安排清运车辆对积压垃圾进行清理；\n2. 优化清运路线和频次，确保垃圾日产日清；\n3. 加强对清运公司的考核管理，提升服务质量。\n感谢您的反馈，我们将持续改进环境卫生工作！',
+    category: 'c1-1',
+    dept: 'd1',
+    keywords: ['垃圾', '清运', '环卫', '清洁'],
+  },
+  {
+    title: '违章建筑投诉处理口径',
+    content: '尊敬的市民，您好！关于您反映的违章建筑问题，我们已立案调查。处理流程如下：\n1. 执法人员已现场勘查取证，确认违建事实；\n2. 已向当事人下达限期拆除通知书，责令自行拆除；\n3. 逾期未拆除的，将依法启动强制拆除程序。\n我们将依法依规推进处置工作，感谢您的监督！',
+    category: 'c1-2',
+    dept: 'd4',
+    keywords: ['违建', '违章建筑', '拆除', '违法建设'],
+  },
+  {
+    title: '道路坑洼投诉处理口径',
+    content: '尊敬的市民，您好！关于您反映的道路坑洼问题，我们已安排市政养护部门处理。具体情况如下：\n1. 已对坑洼路段进行临时修补，保障通行安全；\n2. 将该路段纳入年度道路维修计划，进行全面整修；\n3. 加强日常巡查，及时发现处置道路病害。\n感谢您对市政设施的关注与建议！',
+    category: 'c4-2',
+    dept: 'd4',
+    keywords: ['道路', '坑洼', '市政', '养护'],
+  },
+  {
+    title: '路灯损坏投诉处理口径',
+    content: '尊敬的市民，您好！关于您反映的路灯损坏问题，我们已安排维修人员处理。具体如下：\n1. 已派出现场维修人员进行故障排查；\n2. 一般故障将在24小时内修复，涉及线路改造的3个工作日内完成；\n3. 建立路灯巡检机制，定期排查安全隐患。\n感谢您的反馈，祝您出行安全！',
+    category: 'c4-2',
+    dept: 'd4',
+    keywords: ['路灯', '照明', '故障', '维修'],
+  },
+  {
+    title: '下水道堵塞投诉处理口径',
+    content: '尊敬的市民，您好！关于您反映的下水道堵塞问题，我们已安排疏通人员前往处理。具体措施如下：\n1. 已派疏通车辆和人员现场清淤疏通；\n2. 对堵塞原因进行排查，如有管网破损将安排修复；\n3. 加强排水管网日常养护，减少堵塞情况发生。\n感谢您的反馈，我们将尽快恢复排水畅通！',
+    category: 'c3-3',
+    dept: 'd6',
+    keywords: ['下水道', '堵塞', '污水', '排水'],
+  },
+  {
+    title: '停车乱停乱放投诉处理口径',
+    content: '尊敬的市民，您好！关于您反映的乱停乱放问题，我们已联合交管部门开展整治。具体措施如下：\n1. 加强该路段巡查频次，对违停车辆依法贴单处罚；\n2. 优化周边停车位设置，引导规范停放；\n3. 宣传文明停车理念，提升车主规范意识。\n感谢您对交通管理工作的支持！',
+    category: 'c2-3',
+    dept: 'd8',
+    keywords: ['停车', '乱停', '违停', '交通'],
+  },
+  {
+    title: '油烟污染投诉处理口径',
+    content: '尊敬的市民，您好！关于您反映的餐饮油烟污染问题，我们已联合市场监管部门现场检查。处理情况如下：\n1. 已要求餐饮店安装并正常使用油烟净化设备；\n2. 责令定期清洗维护，确保达标排放；\n3. 对整改不到位的，依法予以处罚。\n感谢您对环境保护工作的监督！',
+    category: 'c3-2',
+    dept: 'd7',
+    keywords: ['油烟', '餐饮', '污染', '净化'],
+  },
+  {
+    title: '小区物业投诉处理口径',
+    content: '尊敬的市民，您好！关于您反映的小区物业管理问题，我们已约谈物业企业负责人。具体处理如下：\n1. 要求物业限期整改存在的问题，提升服务质量；\n2. 指导小区业主委员会依法履行监督职责；\n3. 将物业企业整改情况纳入信用考核。\n如问题仍未解决，建议通过业主大会更换物业企业。感谢您的反馈！',
+    category: 'c5-1',
+    dept: 'd4',
+    keywords: ['物业', '小区', '服务', '管理'],
+  },
+  {
+    title: '广场舞噪音投诉处理口径',
+    content: '尊敬的市民，您好！关于您反映的广场舞噪音扰民问题，我们已协调相关部门处理。具体措施如下：\n1. 已对广场舞活动组织者进行宣传劝导，要求控制音量和活动时间；\n2. 明确活动时段（早7:00后、晚21:00前），音量不得超过规定标准；\n3. 安排人员现场巡查，对违规行为及时劝阻。\n感谢您的理解与监督，我们将持续关注！',
+    category: 'c3-1',
+    dept: 'd3',
+    keywords: ['广场舞', '噪音', '扰民', '劝导'],
+  },
+  {
+    title: '流浪动物投诉处理口径',
+    content: '尊敬的市民，您好！关于您反映的流浪动物问题，我们已协调相关部门处理。具体措施如下：\n1. 已联系动物救助机构对流浪动物进行捕捉收容；\n2. 加强对流浪动物聚集区域的巡查管理；\n3. 宣传文明养宠理念，减少弃养行为。\n感谢您的关注与建议！',
+    category: 'c1-1',
+    dept: 'd1',
+    keywords: ['流浪狗', '流浪猫', '动物', '收容'],
+  },
+  {
+    title: '公交站点设置投诉处理口径',
+    content: '尊敬的市民，您好！关于您反映的公交站点设置问题，我们已进行现场勘查和调研。具体情况如下：\n1. 已收集您的建议，将纳入公交线网优化方案统筹考虑；\n2. 公交站点设置需综合考虑客流、道路条件、安全等多方面因素；\n3. 如具备调整条件，将在下次线网优化时予以调整。\n感谢您对公共交通的关注与建议！',
+    category: 'c2-2',
+    dept: 'd2',
+    keywords: ['公交', '站点', '出行', '线网'],
+  },
+  {
+    title: '绿化维护投诉处理口径',
+    content: '尊敬的市民，您好！关于您反映的绿化维护问题，我们已安排园林部门处理。具体措施如下：\n1. 已对该区域绿化进行修剪、除草、补植等养护作业；\n2. 加强日常巡查，及时发现处置绿化问题；\n3. 提升绿化养护标准，打造优美城市环境。\n感谢您对园林绿化工作的关心与支持！',
+    category: 'c4-3',
+    dept: 'd5',
+    keywords: ['绿化', '园林', '养护', '植被'],
+  },
+  {
+    title: '电梯故障投诉处理口径',
+    content: '尊敬的市民，您好！关于您反映的电梯故障问题，我们已督促物业和维保单位处理。具体情况如下：\n1. 已要求电梯维保单位立即排查故障原因并修复；\n2. 督促物业加强电梯日常管理，定期维护保养；\n3. 如存在安全隐患，将依法依规进行查处。\n感谢您的反馈，祝您生活愉快！',
+    category: 'c5-2',
+    dept: 'd4',
+    keywords: ['电梯', '故障', '维保', '安全'],
+  },
+];
+
+export const generateKnowledgeEntries = (): KnowledgeEntry[] => {
+  const subCategories = categories.filter(c => c.parentId);
+  
+  return knowledgeTemplates.map((template, index) => {
+    const category = subCategories.find(c => c.id === template.category) || subCategories[index % subCategories.length];
+    const parentCategory = categories.find(c => c.id === category.parentId);
+    const department = departments.find(d => d.id === template.dept) || departments[index % departments.length];
+    
+    const createdAt = dayjs()
+      .subtract(Random.integer(30, 180), 'day')
+      .format('YYYY-MM-DD HH:mm:ss');
+    const updatedAt = dayjs(createdAt)
+      .add(Random.integer(1, 30), 'day')
+      .format('YYYY-MM-DD HH:mm:ss');
+    
+    return {
+      id: `KB${String(index + 1).padStart(4, '0')}`,
+      title: template.title,
+      content: template.content,
+      categoryId: category.id,
+      categoryName: `${parentCategory?.name || ''} - ${category.name}`,
+      departmentId: department.id,
+      departmentName: department.name,
+      keywords: template.keywords,
+      status: Random.boolean(0.85) ? 'active' : 'disabled',
+      createdAt,
+      updatedAt,
+      creator: Random.pick(['管理员', '李督办', '王主管', '张工']),
+      usageCount: Random.integer(0, 50),
+    };
+  });
+};
+
+const dispatchRuleTemplates = [
+  { category: 'c1-1', area: 'a1', dept: 'd1', priority: 100, name: '东城区市容环境派单规则' },
+  { category: 'c1-1', area: 'a2', dept: 'd1', priority: 90, name: '西城区市容环境派单规则' },
+  { category: 'c1-1', area: 'a3', dept: 'd1', priority: 80, name: '朝阳区市容环境派单规则' },
+  { category: 'c1-2', area: 'a1', dept: 'd14', priority: 95, name: '东城区违章建筑派单规则' },
+  { category: 'c1-2', area: 'a3', dept: 'd14', priority: 85, name: '朝阳区违章建筑派单规则' },
+  { category: 'c1-3', area: 'a1', dept: 'd1', priority: 90, name: '东城区占道经营派单规则' },
+  { category: 'c1-3', area: 'a3', dept: 'd1', priority: 80, name: '朝阳区占道经营派单规则' },
+  { category: 'c2-1', area: 'a1', dept: 'd2', priority: 100, name: '东城区道路交通派单规则' },
+  { category: 'c2-1', area: 'a4', dept: 'd2', priority: 90, name: '海淀区道路交通派单规则' },
+  { category: 'c2-3', area: 'a3', dept: 'd8', priority: 95, name: '朝阳区停车管理派单规则' },
+  { category: 'c2-3', area: 'a1', dept: 'd8', priority: 85, name: '东城区停车管理派单规则' },
+  { category: 'c3-1', area: 'a3', dept: 'd3', priority: 100, name: '朝阳区噪音污染派单规则' },
+  { category: 'c3-1', area: 'a1', dept: 'd3', priority: 90, name: '东城区噪音污染派单规则' },
+  { category: 'c3-2', area: 'a3', dept: 'd3', priority: 95, name: '朝阳区大气污染派单规则' },
+  { category: 'c3-3', area: 'a6', dept: 'd6', priority: 100, name: '石景山区水污染派单规则' },
+  { category: 'c3-3', area: 'a5', dept: 'd6', priority: 90, name: '丰台区水污染派单规则' },
+  { category: 'c4-2', area: 'a2', dept: 'd4', priority: 90, name: '西城区道路养护派单规则' },
+  { category: 'c4-2', area: 'a4', dept: 'd4', priority: 85, name: '海淀区道路养护派单规则' },
+  { category: 'c4-3', area: 'a5', dept: 'd5', priority: 100, name: '丰台区园林绿化派单规则' },
+  { category: 'c4-3', area: 'a6', dept: 'd5', priority: 90, name: '石景山区园林绿化派单规则' },
+  { category: 'c5-1', area: 'a3', dept: 'd4', priority: 95, name: '朝阳区物业管理派单规则' },
+  { category: 'c5-1', area: 'a4', dept: 'd4', priority: 85, name: '海淀区物业管理派单规则' },
+  { category: 'c5-2', area: 'a1', dept: 'd4', priority: 90, name: '东城区房屋质量派单规则' },
+  { category: 'c5-2', area: 'a2', dept: 'd4', priority: 80, name: '西城区房屋质量派单规则' },
+];
+
+export const generateDispatchRules = (): DispatchRule[] => {
+  return dispatchRuleTemplates.map((template, index) => {
+    const category = categories.find(c => c.id === template.category);
+    const parentCategory = categories.find(c => c.id === category?.parentId);
+    const area = areas.find(a => a.id === template.area);
+    const department = departments.find(d => d.id === template.dept);
+
+    const createdAt = dayjs()
+      .subtract(Random.integer(30, 180), 'day')
+      .format('YYYY-MM-DD HH:mm:ss');
+    const updatedAt = dayjs(createdAt)
+      .add(Random.integer(1, 30), 'day')
+      .format('YYYY-MM-DD HH:mm:ss');
+
+    return {
+      id: `DR${String(index + 1).padStart(4, '0')}`,
+      name: template.name,
+      categoryId: template.category,
+      categoryName: `${parentCategory?.name || ''} - ${category?.name || ''}`,
+      areaId: template.area,
+      areaName: area?.name || '',
+      departmentId: template.dept || '',
+      departmentName: department?.name || '',
+      priority: template.priority,
+      enabled: Random.boolean(0.9),
+      description: `根据${area?.name || ''}区域和${parentCategory?.name || ''}-${category?.name || ''}分类自动派单至${department?.name || ''}`,
+      createdAt,
+      updatedAt,
+    };
+  });
 };

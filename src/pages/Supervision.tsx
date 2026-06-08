@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, Tabs, Table, Button, Tag, Space, Modal, Form, Input, Select, message, Rate } from 'antd';
 import { ClipboardCheck, Clock, Bell, RotateCcw, Phone, CheckCircle2, XCircle, ThumbsUp, ThumbsDown } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { useAppStore } from '@/store/appStore';
@@ -10,8 +10,16 @@ import { StatusTag, SourceTag } from '@/components/StatusTags';
 
 const Supervision: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { complaints, updateComplaint, addTimeline, extensionRequests, approveExtension, rejectExtension } = useAppStore();
   const [activeTab, setActiveTab] = useState('pending');
+
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (tab && ['pending', 'review', 'delay', 'followup'].includes(tab)) {
+      setActiveTab(tab);
+    }
+  }, [searchParams]);
   const [returnModalVisible, setReturnModalVisible] = useState(false);
   const [urgeModalVisible, setUrgeModalVisible] = useState(false);
   const [reviewModalVisible, setReviewModalVisible] = useState(false);
