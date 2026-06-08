@@ -1,5 +1,5 @@
 import { Form, Input, Button, Card, message } from 'antd';
-import { User, Lock, LogIn } from 'lucide-react';
+import { FileText, User, Lock, LogIn } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '@/store/appStore';
 import type { User as UserType } from '@/types';
@@ -101,6 +101,17 @@ const Login: React.FC = () => {
               <div className="text-gray-500">
                 测试账号：<span className="text-blue-600">admin / 123456</span>
               </div>
+            </div>
+
+            <div className="mt-5 pt-5 border-t border-gray-100">
+              <Button
+                block
+                size="large"
+                icon={<FileText size={18} />}
+                onClick={() => navigate('/public-submit')}
+              >
+                公众投诉建议提交
+              </Button>
             </div>
           </Form>
         </Card>

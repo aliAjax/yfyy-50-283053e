@@ -1,6 +1,18 @@
 import { create } from 'zustand';
-import type { Complaint, User, DashboardStats, ExtensionRequest } from '@/types';
+import dayjs from 'dayjs';
+import type { Complaint, User, DashboardStats, ExtensionRequest, TimelineRecord } from '@/types';
 import { generateComplaints, generateDashboardStats, generateExtensionRequests } from '@/data/mockData';
+import { categories, areas, departments } from '@/data/dictionaries';
+
+export interface PublicComplaintForm {
+  title: string;
+  categoryId: string;
+  areaId: string;
+  address?: string;
+  contactName: string;
+  contactPhone: string;
+  content: string;
+}
 
 interface AppState {
   user: User | null;
@@ -10,6 +22,7 @@ interface AppState {
   setUser: (user: User | null) => void;
   getComplaintById: (id: string) => Complaint | undefined;
   addComplaint: (complaint: Complaint) => void;
+  submitPublicComplaint: (values: PublicComplaintForm) => Complaint;
   updateComplaint: (id: string, updates: Partial<Complaint>) => void;
   addTimeline: (complaintId: string, timeline: Complaint['timelines'][0]) => void;
   addExtensionRequest: (request: ExtensionRequest) => void;
@@ -39,6 +52,62 @@ export const useAppStore = create<AppState>((set, get) => ({
       complaints: [complaint, ...state.complaints],
     }));
     get().refreshStats();
+  },
+
+  submitPublicComplaint: (values) => {
+    const { complaints } = get();
+    const now = dayjs();
+    const newId = `C${String(complaints.length + 1).padStart(5, '0')}`;
+
+    const category = categories.find((c) => c.id === values.categoryId);
+    const parentCategory = categories.find((c) => c.id === category?.parentId);
+    const area = areas.find((a) => a.id === values.areaId);
+    const department = departments[0];
+
+    const acceptTimeline: TimelineRecord = {
+      id: `${newId}-public-accept`,
+      complaintId: newId,
+      type: 'accept',
+      operator: '公众提交入口',
+      content: '投诉建议已提交并自动受理，等待系统派单',
+      createdAt: now.format('YYYY-MM-DD HH:mm:ss'),
+    };
+
+    const assignTimeline: TimelineRecord = {
+      id: `${newId}-public-assign`,
+      complaintId: newId,
+      type: 'assign',
+      operator: '智能派单系统',
+      content: `根据事项分类和所属区域自动派单至${department.name}`,
+      createdAt: now.add(5, 'minute').format('YYYY-MM-DD HH:mm:ss'),
+    };
+
+    const newComplaint: Complaint = {
+      id: newId,
+      title: values.title,
+      content: values.content,
+      source: 'web',
+      status: 'processing',
+      categoryId: values.categoryId,
+      categoryName: parentCategory
+        ? `${parentCategory.name} - ${category?.name || ''}`
+        : category?.name || '',
+      areaId: values.areaId,
+      areaName: area?.name || '',
+      departmentId: department.id,
+      departmentName: department.name,
+      createdAt: now.format('YYYY-MM-DD HH:mm:ss'),
+      deadline: now.add(5, 'day').format('YYYY-MM-DD HH:mm:ss'),
+      contactName: values.contactName,
+      contactPhone: values.contactPhone,
+      address: values.address,
+      isRepeat: false,
+      urgeCount: 0,
+      timelines: [acceptTimeline, assignTimeline],
+    };
+
+    get().addComplaint(newComplaint);
+    return newComplaint;
   },
 
   updateComplaint: (id, updates) => {

@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import { ConfigProvider } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import Login from '@/pages/Login';
+import PublicSubmit from '@/pages/PublicSubmit';
 import Dashboard from '@/pages/Dashboard';
 import ComplaintList from '@/pages/ComplaintList';
 import ComplaintDetail from '@/pages/ComplaintDetail';
@@ -44,6 +45,7 @@ export default function App() {
       <Router>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/public-submit" element={<PublicSubmit />} />
           <Route
             path="/"
             element={
