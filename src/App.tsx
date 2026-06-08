@@ -9,6 +9,7 @@ import ComplaintDetail from '@/pages/ComplaintDetail';
 import MyTasks from '@/pages/MyTasks';
 import Supervision from '@/pages/Supervision';
 import Statistics from '@/pages/Statistics';
+import NotificationCenter from '@/pages/NotificationCenter';
 import MainLayout from '@/components/MainLayout';
 import { useAppStore } from '@/store/appStore';
 
@@ -102,6 +103,16 @@ export default function App() {
               <ProtectedRoute>
                 <MainLayout>
                   <Supervision />
+                </MainLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/notifications"
+            element={
+              <ProtectedRoute>
+                <MainLayout>
+                  <NotificationCenter />
                 </MainLayout>
               </ProtectedRoute>
             }

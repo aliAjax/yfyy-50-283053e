@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Card, Tabs, Table, Button, Tag, Space, Modal, Form, Input, Select, message, Rate } from 'antd';
 import { ClipboardCheck, Clock, Bell, RotateCcw, Phone, CheckCircle2, XCircle, ThumbsUp, ThumbsDown } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { useAppStore } from '@/store/appStore';
@@ -10,6 +10,7 @@ import { StatusTag, SourceTag } from '@/components/StatusTags';
 
 const Supervision: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { complaints, updateComplaint, addTimeline, extensionRequests, approveExtension, rejectExtension } = useAppStore();
   const [activeTab, setActiveTab] = useState('pending');
   const [returnModalVisible, setReturnModalVisible] = useState(false);
@@ -25,6 +26,13 @@ const Supervision: React.FC = () => {
   const [reviewForm] = Form.useForm();
   const [followupForm] = Form.useForm();
   const [delayForm] = Form.useForm();
+
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (tab && ['pending', 'review', 'delay', 'followup'].includes(tab)) {
+      setActiveTab(tab);
+    }
+  }, [searchParams]);
 
   const pendingList = complaints.filter(
     (c) => c.status === 'processing' || c.status === 'pending_assign'
@@ -350,6 +358,14 @@ const Supervision: React.FC = () => {
       title: '申请编号',
       dataIndex: 'id',
       width: 110,
+      render: (id: string) => {
+        const isTarget = searchParams.get('requestId') === id;
+        return (
+          <span className={isTarget ? 'font-mono text-purple-600 font-semibold' : 'font-mono'}>
+            {id}
+          </span>
+        );
+      },
     },
     {
       title: '投诉标题',

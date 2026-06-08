@@ -114,3 +114,23 @@ export interface ExtensionRequest {
   approver?: string;
   approveRemark?: string;
 }
+
+export type NotificationType =
+  | 'urge'
+  | 'delay_request'
+  | 'delay_approve'
+  | 'delay_reject'
+  | 'return'
+  | 'review';
+
+export interface BusinessNotification {
+  id: string;
+  type: NotificationType;
+  title: string;
+  content: string;
+  createdAt: string;
+  isRead: boolean;
+  complaintId?: string;
+  extensionRequestId?: string;
+  targetPath: string;
+}

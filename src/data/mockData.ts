@@ -9,6 +9,8 @@ import type {
   ComplaintSource,
   ComplaintStatus,
   ExtensionRequest,
+  BusinessNotification,
+  NotificationType,
 } from '@/types';
 import { categories, areas, departments } from './dictionaries';
 
@@ -348,4 +350,64 @@ export const generateExtensionRequests = (complaints: Complaint[]): ExtensionReq
   return requests.sort((a, b) =>
     dayjs(b.createdAt).valueOf() - dayjs(a.createdAt).valueOf()
   );
+};
+
+const notificationTitleMap: Record<NotificationType, string> = {
+  urge: '督办催办提醒',
+  delay_request: '延期审批提醒',
+  delay_approve: '延期审批通过',
+  delay_reject: '延期审批驳回',
+  return: '退回重办提醒',
+  review: '审核通过提醒',
+};
+
+const notificationTypeMap: Partial<Record<TimelineRecord['type'], NotificationType>> = {
+  urge: 'urge',
+  return: 'return',
+  review: 'review',
+  delay_approve: 'delay_approve',
+  delay_reject: 'delay_reject',
+};
+
+export const generateNotifications = (
+  complaints: Complaint[],
+  extensionRequests: ExtensionRequest[]
+): BusinessNotification[] => {
+  const notifications: BusinessNotification[] = [];
+
+  complaints.forEach((complaint) => {
+    complaint.timelines.forEach((timeline) => {
+      const type = notificationTypeMap[timeline.type];
+      if (!type) return;
+
+      notifications.push({
+        id: `NT-${timeline.id}`,
+        type,
+        title: notificationTitleMap[type],
+        content: `${complaint.id} ${complaint.title}：${timeline.content}`,
+        createdAt: timeline.createdAt,
+        isRead: Random.boolean(0.45),
+        complaintId: complaint.id,
+        targetPath: `/complaints/${complaint.id}`,
+      });
+    });
+  });
+
+  extensionRequests.forEach((request) => {
+    notifications.push({
+      id: `NT-${request.id}`,
+      type: 'delay_request',
+      title: notificationTitleMap.delay_request,
+      content: `${request.complaintId} ${request.complaintTitle}：${request.departmentName}申请延期${request.days}天`,
+      createdAt: request.createdAt,
+      isRead: request.status !== 'pending',
+      complaintId: request.complaintId,
+      extensionRequestId: request.id,
+      targetPath: `/supervision?tab=delay&requestId=${request.id}`,
+    });
+  });
+
+  return notifications
+    .sort((a, b) => dayjs(b.createdAt).valueOf() - dayjs(a.createdAt).valueOf())
+    .slice(0, 60);
 };

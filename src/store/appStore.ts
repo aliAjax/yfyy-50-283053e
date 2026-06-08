@@ -1,7 +1,20 @@
 import { create } from 'zustand';
 import dayjs from 'dayjs';
-import type { Complaint, User, DashboardStats, ExtensionRequest, TimelineRecord } from '@/types';
-import { generateComplaints, generateDashboardStats, generateExtensionRequests } from '@/data/mockData';
+import type {
+  BusinessNotification,
+  Complaint,
+  DashboardStats,
+  ExtensionRequest,
+  NotificationType,
+  TimelineRecord,
+  User,
+} from '@/types';
+import {
+  generateComplaints,
+  generateDashboardStats,
+  generateExtensionRequests,
+  generateNotifications,
+} from '@/data/mockData';
 import { categories, areas, departments } from '@/data/dictionaries';
 
 export interface PublicComplaintForm {
@@ -18,6 +31,7 @@ interface AppState {
   user: User | null;
   complaints: Complaint[];
   extensionRequests: ExtensionRequest[];
+  notifications: BusinessNotification[];
   dashboardStats: DashboardStats | null;
   setUser: (user: User | null) => void;
   getComplaintById: (id: string) => Complaint | undefined;
@@ -28,17 +42,39 @@ interface AppState {
   addExtensionRequest: (request: ExtensionRequest) => void;
   approveExtension: (id: string, approver: string, remark?: string) => void;
   rejectExtension: (id: string, approver: string, remark?: string) => void;
+  markNotificationRead: (id: string) => void;
+  markAllNotificationsRead: () => void;
+  getUnreadNotificationCount: () => number;
   refreshStats: () => void;
 }
 
 const initialComplaints = generateComplaints(60);
 const initialStats = generateDashboardStats(initialComplaints);
 const initialExtensions = generateExtensionRequests(initialComplaints);
+const initialNotifications = generateNotifications(initialComplaints, initialExtensions);
+
+const notificationTimelineTypes: Partial<Record<TimelineRecord['type'], NotificationType>> = {
+  urge: 'urge',
+  return: 'return',
+  review: 'review',
+  delay_approve: 'delay_approve',
+  delay_reject: 'delay_reject',
+};
+
+const notificationTitleMap: Record<NotificationType, string> = {
+  urge: '督办催办提醒',
+  delay_request: '延期审批提醒',
+  delay_approve: '延期审批通过',
+  delay_reject: '延期审批驳回',
+  return: '退回重办提醒',
+  review: '审核通过提醒',
+};
 
 export const useAppStore = create<AppState>((set, get) => ({
   user: null,
   complaints: initialComplaints,
   extensionRequests: initialExtensions,
+  notifications: initialNotifications,
   dashboardStats: initialStats,
 
   setUser: (user) => set({ user }),
@@ -120,18 +156,51 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   addTimeline: (complaintId, timeline) => {
+    const complaint = get().getComplaintById(complaintId);
+    const notificationType = notificationTimelineTypes[timeline.type];
+
     set((state) => ({
       complaints: state.complaints.map((c) =>
         c.id === complaintId
           ? { ...c, timelines: [...c.timelines, timeline] }
           : c
       ),
+      notifications:
+        notificationType && complaint
+          ? [
+              {
+                id: `NT-${timeline.id}`,
+                type: notificationType,
+                title: notificationTitleMap[notificationType],
+                content: `${complaint.id} ${complaint.title}：${timeline.content}`,
+                createdAt: timeline.createdAt,
+                isRead: false,
+                complaintId,
+                targetPath: `/complaints/${complaintId}`,
+              },
+              ...state.notifications,
+            ]
+          : state.notifications,
     }));
   },
 
   addExtensionRequest: (request) => {
     set((state) => ({
       extensionRequests: [request, ...state.extensionRequests],
+      notifications: [
+        {
+          id: `NT-${request.id}`,
+          type: 'delay_request',
+          title: notificationTitleMap.delay_request,
+          content: `${request.complaintId} ${request.complaintTitle}：${request.departmentName}申请延期${request.days}天`,
+          createdAt: request.createdAt,
+          isRead: false,
+          complaintId: request.complaintId,
+          extensionRequestId: request.id,
+          targetPath: `/supervision?tab=delay&requestId=${request.id}`,
+        },
+        ...state.notifications,
+      ],
     }));
   },
 
@@ -198,6 +267,27 @@ export const useAppStore = create<AppState>((set, get) => ({
       content: `延期申请已驳回${remark ? `，原因：${remark}` : ''}`,
       createdAt: now,
     });
+  },
+
+  markNotificationRead: (id) => {
+    set((state) => ({
+      notifications: state.notifications.map((notification) =>
+        notification.id === id ? { ...notification, isRead: true } : notification
+      ),
+    }));
+  },
+
+  markAllNotificationsRead: () => {
+    set((state) => ({
+      notifications: state.notifications.map((notification) => ({
+        ...notification,
+        isRead: true,
+      })),
+    }));
+  },
+
+  getUnreadNotificationCount: () => {
+    return get().notifications.filter((notification) => !notification.isRead).length;
   },
 
   refreshStats: () => {

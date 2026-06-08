@@ -1,4 +1,4 @@
-import { Layout, Menu, Avatar, Dropdown, theme } from 'antd';
+import { Badge, Layout, Menu, Avatar, Dropdown, theme } from 'antd';
 import {
   LayoutDashboard,
   FileText,
@@ -43,6 +43,15 @@ const menuItems = [
   },
 ];
 
+const titleMap: Record<string, string> = {
+  '/dashboard': '数据驾驶舱',
+  '/complaints': '投诉管理',
+  '/my-tasks': '待办事项',
+  '/supervision': '督办管理',
+  '/statistics': '统计分析',
+  '/notifications': '通知中心',
+};
+
 interface MainLayoutProps {
   children: React.ReactNode;
 }
@@ -50,7 +59,7 @@ interface MainLayoutProps {
 const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, setUser } = useAppStore();
+  const { user, setUser, getUnreadNotificationCount } = useAppStore();
   const {
     token: { colorBgContainer, borderRadiusLG },
   } = theme.useToken();
@@ -87,6 +96,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
   ];
 
   const selectedKey = '/' + location.pathname.split('/')[1];
+  const unreadNotificationCount = getUnreadNotificationCount();
 
   return (
     <Layout className="min-h-screen">
@@ -136,12 +146,18 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
           }}
         >
           <div className="text-lg font-medium text-gray-800">
-            {menuItems.find((item) => item.key === selectedKey)?.label || '城市治理投诉建议平台'}
+            {titleMap[selectedKey] || '城市治理投诉建议平台'}
           </div>
           <div className="flex items-center gap-4">
-            <div className="relative cursor-pointer p-2 rounded-lg hover:bg-gray-100 transition-colors">
-              <Bell size={20} className="text-gray-600" />
-              <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
+            <div
+              className="relative cursor-pointer p-2 rounded-lg hover:bg-gray-100 transition-colors"
+              role="button"
+              aria-label="通知中心"
+              onClick={() => navigate('/notifications')}
+            >
+              <Badge count={unreadNotificationCount} size="small" overflowCount={99}>
+                <Bell size={20} className="text-gray-600" />
+              </Badge>
             </div>
             <Dropdown menu={{ items: userMenuItems }} placement="bottomRight">
               <div className="flex items-center gap-3 cursor-pointer hover:bg-gray-50 px-3 py-1.5 rounded-lg transition-colors">
