@@ -4,6 +4,7 @@ import type {
   BusinessNotification,
   Complaint,
   DashboardStats,
+  DispatchRule,
   ExtensionRequest,
   KnowledgeEntry,
   NotificationType,
@@ -16,8 +17,9 @@ import {
   generateExtensionRequests,
   generateNotifications,
 } from '@/data/mockData';
-import { categories, areas, departments } from '@/data/dictionaries';
+import { categories, areas, departments, initialDispatchRules } from '@/data/dictionaries';
 import { initialKnowledgeEntries } from '@/data/knowledgeBase';
+import { matchDispatchRule } from '@/lib/utils';
 
 export interface PublicComplaintForm {
   title: string;
@@ -30,7 +32,7 @@ export interface PublicComplaintForm {
 }
 
 export interface BackendComplaintForm extends PublicComplaintForm {
-  departmentId: string;
+  departmentId?: string;
 }
 
 interface AppState {
@@ -39,12 +41,17 @@ interface AppState {
   extensionRequests: ExtensionRequest[];
   notifications: BusinessNotification[];
   knowledgeEntries: KnowledgeEntry[];
+  dispatchRules: DispatchRule[];
   dashboardStats: DashboardStats | null;
   setUser: (user: User | null) => void;
   getComplaintById: (id: string) => Complaint | undefined;
   addKnowledgeEntry: (entry: Omit<KnowledgeEntry, 'id' | 'code' | 'usageCount' | 'updatedAt'>) => void;
   updateKnowledgeEntry: (id: string, updates: Partial<KnowledgeEntry>) => void;
   applyKnowledgeEntry: (id: string) => void;
+  addDispatchRule: (rule: Omit<DispatchRule, 'id' | 'createdAt' | 'updatedAt'>) => void;
+  updateDispatchRule: (id: string, updates: Partial<Omit<DispatchRule, 'id' | 'createdAt'>>) => void;
+  deleteDispatchRule: (id: string) => void;
+  toggleDispatchRuleStatus: (id: string, enabled: boolean) => void;
   addComplaint: (complaint: Complaint) => void;
   submitPublicComplaint: (values: PublicComplaintForm) => Complaint;
   submitBackendComplaint: (values: BackendComplaintForm) => Complaint;
@@ -87,6 +94,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   extensionRequests: initialExtensions,
   notifications: initialNotifications,
   knowledgeEntries: initialKnowledgeEntries,
+  dispatchRules: initialDispatchRules,
   dashboardStats: initialStats,
 
   setUser: (user) => set({ user }),
@@ -132,6 +140,45 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
   },
 
+  addDispatchRule: (rule) => {
+    const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    set((state) => ({
+      dispatchRules: [
+        {
+          ...rule,
+          id: `dr-${Date.now()}`,
+          createdAt: now,
+          updatedAt: now,
+        },
+        ...state.dispatchRules,
+      ],
+    }));
+  },
+
+  updateDispatchRule: (id, updates) => {
+    const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    set((state) => ({
+      dispatchRules: state.dispatchRules.map((rule) =>
+        rule.id === id ? { ...rule, ...updates, updatedAt: now } : rule
+      ),
+    }));
+  },
+
+  deleteDispatchRule: (id) => {
+    set((state) => ({
+      dispatchRules: state.dispatchRules.filter((rule) => rule.id !== id),
+    }));
+  },
+
+  toggleDispatchRuleStatus: (id, enabled) => {
+    const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    set((state) => ({
+      dispatchRules: state.dispatchRules.map((rule) =>
+        rule.id === id ? { ...rule, enabled, updatedAt: now } : rule
+      ),
+    }));
+  },
+
   addComplaint: (complaint) => {
     set((state) => ({
       complaints: [complaint, ...state.complaints],
@@ -147,14 +194,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     const category = categories.find((c) => c.id === values.categoryId);
     const parentCategory = categories.find((c) => c.id === category?.parentId);
     const area = areas.find((a) => a.id === values.areaId);
-    const department = departments[0];
+    const match = matchDispatchRule(get().dispatchRules, categories, values.categoryId, values.areaId);
+    const department = departments.find((d) => d.id === match.rule?.departmentId);
+    const hasDepartment = Boolean(department);
 
     const acceptTimeline: TimelineRecord = {
       id: `${newId}-public-accept`,
       complaintId: newId,
       type: 'accept',
       operator: '公众提交入口',
-      content: '投诉建议已提交并自动受理，等待系统派单',
+      content: hasDepartment ? '投诉建议已提交并自动受理，等待系统派单' : '投诉建议已提交并自动受理，未匹配到派单规则，等待人工选择责任单位',
       createdAt: now.format('YYYY-MM-DD HH:mm:ss'),
     };
 
@@ -162,9 +211,13 @@ export const useAppStore = create<AppState>((set, get) => ({
       id: `${newId}-public-assign`,
       complaintId: newId,
       type: 'assign',
-      operator: '智能派单系统',
-      content: `根据事项分类和所属区域自动派单至${department.name}`,
+      operator: hasDepartment ? '智能派单系统' : '派单调度台',
+      content: hasDepartment
+        ? `根据派单规则“${match.rule?.name}”自动匹配至${department?.name}`
+        : '未匹配到适用派单规则，需人工选择责任单位',
       createdAt: now.add(5, 'minute').format('YYYY-MM-DD HH:mm:ss'),
+      dispatchSource: hasDepartment ? 'rule' : 'pending_manual',
+      dispatchRuleId: match.rule?.id,
     };
 
     const newComplaint: Complaint = {
@@ -172,20 +225,22 @@ export const useAppStore = create<AppState>((set, get) => ({
       title: values.title,
       content: values.content,
       source: 'web',
-      status: 'processing',
+      status: hasDepartment ? 'processing' : 'pending_assign',
       categoryId: values.categoryId,
       categoryName: parentCategory
         ? `${parentCategory.name} - ${category?.name || ''}`
         : category?.name || '',
       areaId: values.areaId,
       areaName: area?.name || '',
-      departmentId: department.id,
-      departmentName: department.name,
+      departmentId: department?.id || '',
+      departmentName: department?.name || '待人工选择',
       createdAt: now.format('YYYY-MM-DD HH:mm:ss'),
       deadline: now.add(5, 'day').format('YYYY-MM-DD HH:mm:ss'),
       contactName: values.contactName,
       contactPhone: values.contactPhone,
       address: values.address,
+      dispatchSource: hasDepartment ? 'rule' : 'pending_manual',
+      dispatchRuleId: match.rule?.id,
       isRepeat: false,
       urgeCount: 0,
       timelines: [acceptTimeline, assignTimeline],
@@ -203,14 +258,20 @@ export const useAppStore = create<AppState>((set, get) => ({
     const category = categories.find((c) => c.id === values.categoryId);
     const parentCategory = categories.find((c) => c.id === category?.parentId);
     const area = areas.find((a) => a.id === values.areaId);
-    const department = departments.find((d) => d.id === values.departmentId);
+    const match = matchDispatchRule(get().dispatchRules, categories, values.categoryId, values.areaId);
+    const matchedDepartment = departments.find((d) => d.id === match.rule?.departmentId);
+    const manualDepartment = departments.find((d) => d.id === values.departmentId);
+    const department = matchedDepartment || manualDepartment;
+    const dispatchSource = matchedDepartment ? 'rule' : manualDepartment ? 'manual' : 'pending_manual';
 
     const acceptTimeline: TimelineRecord = {
       id: `${newId}-backend-accept`,
       complaintId: newId,
       type: 'accept',
       operator: '后台录入',
-      content: '投诉已受理，等待派单',
+      content: dispatchSource === 'pending_manual'
+        ? '投诉已受理，未匹配到派单规则，等待人工选择责任单位'
+        : '投诉已受理，等待派单',
       createdAt: now.format('YYYY-MM-DD HH:mm:ss'),
     };
 
@@ -218,9 +279,16 @@ export const useAppStore = create<AppState>((set, get) => ({
       id: `${newId}-backend-assign`,
       complaintId: newId,
       type: 'assign',
-      operator: '智能派单系统',
-      content: `根据区域和分类自动派单至${department?.name || '责任单位'}`,
+      operator: dispatchSource === 'rule' ? '智能派单系统' : '后台录入员',
+      content:
+        dispatchSource === 'rule'
+          ? `根据派单规则“${match.rule?.name}”自动匹配至${department?.name}`
+          : dispatchSource === 'manual'
+            ? `未匹配到派单规则，由人工选择责任单位${department?.name}`
+            : '未匹配到适用派单规则，需人工选择责任单位',
       createdAt: now.add(5, 'minute').format('YYYY-MM-DD HH:mm:ss'),
+      dispatchSource,
+      dispatchRuleId: match.rule?.id,
     };
 
     const newComplaint: Complaint = {
@@ -228,20 +296,22 @@ export const useAppStore = create<AppState>((set, get) => ({
       title: values.title,
       content: values.content,
       source: 'backend',
-      status: 'processing',
+      status: department ? 'processing' : 'pending_assign',
       categoryId: values.categoryId,
       categoryName: parentCategory
         ? `${parentCategory.name} - ${category?.name || ''}`
         : category?.name || '',
       areaId: values.areaId,
       areaName: area?.name || '',
-      departmentId: values.departmentId,
-      departmentName: department?.name || '',
+      departmentId: department?.id || '',
+      departmentName: department?.name || '待人工选择',
       createdAt: now.format('YYYY-MM-DD HH:mm:ss'),
       deadline: now.add(5, 'day').format('YYYY-MM-DD HH:mm:ss'),
       contactName: values.contactName,
       contactPhone: values.contactPhone,
       address: values.address,
+      dispatchSource,
+      dispatchRuleId: match.rule?.id,
       isRepeat: false,
       urgeCount: 0,
       timelines: [acceptTimeline, assignTimeline],

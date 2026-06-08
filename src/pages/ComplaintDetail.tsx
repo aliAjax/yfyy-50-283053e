@@ -38,7 +38,7 @@ import type { ExtensionRequest } from '@/types';
 import { StatusTag, SourceTag, SatisfactionTag } from '@/components/StatusTags';
 import ComplaintTimeline from '@/components/ComplaintTimeline';
 import type { KnowledgeEntry } from '@/types';
-import { categories, departments } from '@/data/dictionaries';
+import { categories, departments, dispatchSourceMap } from '@/data/dictionaries';
 
 const getRootCategoryId = (categoryId: string) => {
   const category = categories.find((item) => item.id === categoryId);
@@ -383,6 +383,13 @@ const ComplaintDetail: React.FC = () => {
               <Descriptions.Item label="责任单位">
                 {complaint.departmentName}
               </Descriptions.Item>
+              {complaint.dispatchSource && (
+                <Descriptions.Item label="派单来源">
+                  <Tag color={complaint.dispatchSource === 'rule' ? 'cyan' : complaint.dispatchSource === 'manual' ? 'blue' : 'orange'}>
+                    {dispatchSourceMap[complaint.dispatchSource]}
+                  </Tag>
+                </Descriptions.Item>
+              )}
               <Descriptions.Item label="办理状态">
                 <StatusTag status={complaint.status} />
               </Descriptions.Item>

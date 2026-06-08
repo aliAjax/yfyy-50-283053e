@@ -47,6 +47,21 @@ export interface Department {
   responsibilities: string[];
 }
 
+export type DispatchSource = 'rule' | 'manual' | 'pending_manual';
+
+export interface DispatchRule {
+  id: string;
+  name: string;
+  categoryId: string;
+  areaId?: string;
+  departmentId: string;
+  priority: number;
+  enabled: boolean;
+  remark?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type KnowledgeStatus = 'active' | 'inactive';
 
 export interface KnowledgeEntry {
@@ -73,6 +88,8 @@ export interface TimelineRecord {
   content: string;
   createdAt: string;
   remark?: string;
+  dispatchSource?: DispatchSource;
+  dispatchRuleId?: string;
 }
 
 export interface Complaint {
@@ -93,6 +110,8 @@ export interface Complaint {
   contactName: string;
   contactPhone: string;
   address?: string;
+  dispatchSource?: DispatchSource;
+  dispatchRuleId?: string;
   satisfaction?: number;
   isRepeat?: boolean;
   urgeCount?: number;

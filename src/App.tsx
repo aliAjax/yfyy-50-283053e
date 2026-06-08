@@ -7,6 +7,7 @@ import Dashboard from '@/pages/Dashboard';
 import ComplaintList from '@/pages/ComplaintList';
 import ComplaintDetail from '@/pages/ComplaintDetail';
 import BatchImport from '@/pages/BatchImport';
+import DispatchRules from '@/pages/DispatchRules';
 import MyTasks from '@/pages/MyTasks';
 import Supervision from '@/pages/Supervision';
 import Statistics from '@/pages/Statistics';
@@ -86,6 +87,16 @@ export default function App() {
               <ProtectedRoute>
                 <MainLayout>
                   <BatchImport />
+                </MainLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/dispatch-rules"
+            element={
+              <ProtectedRoute>
+                <MainLayout>
+                  <DispatchRules />
                 </MainLayout>
               </ProtectedRoute>
             }

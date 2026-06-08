@@ -12,6 +12,7 @@ import {
   Bell,
   BookOpen,
   Building2,
+  Route,
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAppStore } from '@/store/appStore';
@@ -33,6 +34,11 @@ const menuItems = [
     key: '/batch-import',
     icon: <FileSpreadsheet size={18} />,
     label: '批量录入',
+  },
+  {
+    key: '/dispatch-rules',
+    icon: <Route size={18} />,
+    label: '智能派单规则',
   },
   {
     key: '/my-tasks',
@@ -65,6 +71,7 @@ const titleMap: Record<string, string> = {
   '/dashboard': '数据驾驶舱',
   '/complaints': '投诉管理',
   '/batch-import': '批量录入预览',
+  '/dispatch-rules': '智能派单规则配置',
   '/my-tasks': '待办事项',
   '/supervision': '督办管理',
   '/statistics': '统计分析',

@@ -62,8 +62,9 @@ const generateTimelines = (
     complaintId,
     type: 'assign',
     operator: '智能派单系统',
-    content: '根据区域和分类自动派单至责任单位',
+    content: '根据历史派单规则自动派单至责任单位',
     createdAt: currentTime.format('YYYY-MM-DD HH:mm:ss'),
+    dispatchSource: 'rule',
   });
 
   if (status === 'processing' || status === 'pending_review' || status === 'completed' || status === 'returned' || status === 'overdue') {
@@ -208,6 +209,7 @@ const generateComplaint = (index: number): Complaint => {
     contactName: Random.cname(),
     contactPhone: /^1[3-9]\d{9}$/.exec(Random.string('number', 11))?.[0] || '13800138000',
     address: area.name + Random.csentence(5, 10),
+    dispatchSource: 'rule',
     satisfaction,
     isRepeat: Random.boolean(0.15),
     urgeCount: Random.integer(0, 3),

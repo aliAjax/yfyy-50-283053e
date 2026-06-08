@@ -14,7 +14,7 @@ import {
   Phone,
 } from 'lucide-react';
 import type { TimelineRecord, TimelineType } from '@/types';
-import { timelineTypeMap } from '@/data/dictionaries';
+import { dispatchSourceMap, timelineTypeMap } from '@/data/dictionaries';
 
 const iconMap: Record<TimelineType, React.ReactNode> = {
   accept: <FileCheck2 size={16} />,
@@ -75,6 +75,11 @@ const ComplaintTimeline: React.FC<ComplaintTimelineProps> = ({ records }) => {
         {record.remark && (
           <p className="text-gray-500 text-xs bg-gray-50 px-2 py-1 rounded">
             备注：{record.remark}
+          </p>
+        )}
+        {record.type === 'assign' && record.dispatchSource && (
+          <p className="text-gray-500 text-xs bg-cyan-50 px-2 py-1 rounded">
+            派单来源：{dispatchSourceMap[record.dispatchSource] || record.dispatchSource}
           </p>
         )}
         <span className="text-xs text-gray-400">{record.createdAt}</span>

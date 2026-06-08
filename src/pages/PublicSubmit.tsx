@@ -1,11 +1,12 @@
-import { useState } from 'react';
-import { Button, Card, Col, Form, Input, Row, Select, Space, Typography, message } from 'antd';
+import { useMemo, useState } from 'react';
+import { Alert, Button, Card, Col, Form, Input, Row, Select, Space, Typography, message } from 'antd';
 import { ArrowLeft, FileText, Send } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAppStore, type PublicComplaintForm } from '@/store/appStore';
 import type { Complaint } from '@/types';
-import { areas, categories } from '@/data/dictionaries';
+import { areas, categories, departments } from '@/data/dictionaries';
 import ComplaintTimeline from '@/components/ComplaintTimeline';
+import { matchDispatchRule } from '@/lib/utils';
 
 const { TextArea } = Input;
 
@@ -13,15 +14,30 @@ const PublicSubmit: React.FC = () => {
   const navigate = useNavigate();
   const [form] = Form.useForm<PublicComplaintForm>();
   const submitPublicComplaint = useAppStore((state) => state.submitPublicComplaint);
+  const dispatchRules = useAppStore((state) => state.dispatchRules);
   const [submittedComplaint, setSubmittedComplaint] = useState<Complaint | null>(null);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>();
+  const [selectedAreaId, setSelectedAreaId] = useState<string>();
 
   const parentCategories = categories.filter((category) => !category.parentId);
+  const dispatchPreview = useMemo(() => {
+    if (!selectedCategoryId || !selectedAreaId) return null;
+    const match = matchDispatchRule(dispatchRules, categories, selectedCategoryId, selectedAreaId);
+    const department = departments.find((item) => item.id === match.rule?.departmentId);
+    return { match, department };
+  }, [dispatchRules, selectedAreaId, selectedCategoryId]);
 
   const handleSubmit = (values: PublicComplaintForm) => {
     const complaint = submitPublicComplaint(values);
     setSubmittedComplaint(complaint);
     form.resetFields();
-    message.success('提交成功，已自动受理并派单');
+    setSelectedCategoryId(undefined);
+    setSelectedAreaId(undefined);
+    if (complaint.dispatchSource === 'rule') {
+      message.success('提交成功，已自动受理并按规则派单');
+    } else {
+      message.warning('提交成功，未匹配到派单规则，后台将人工选择责任单位');
+    }
   };
 
   return (
@@ -64,7 +80,7 @@ const PublicSubmit: React.FC = () => {
                       name="categoryId"
                       rules={[{ required: true, message: '请选择事项分类' }]}
                     >
-                      <Select placeholder="请选择事项分类">
+                      <Select placeholder="请选择事项分类" onChange={setSelectedCategoryId}>
                         {parentCategories.map((category) => (
                           <Select.OptGroup key={category.id} label={category.name}>
                             {categories
@@ -88,7 +104,7 @@ const PublicSubmit: React.FC = () => {
                       name="areaId"
                       rules={[{ required: true, message: '请选择所属区域' }]}
                     >
-                      <Select placeholder="请选择所属区域">
+                      <Select placeholder="请选择所属区域" onChange={setSelectedAreaId}>
                         {areas.map((area) => (
                           <Select.Option key={area.id} value={area.id}>
                             {area.name}
@@ -107,6 +123,19 @@ const PublicSubmit: React.FC = () => {
                     </Form.Item>
                   </Col>
                 </Row>
+
+                {selectedCategoryId && selectedAreaId && (
+                  <Alert
+                    className="mb-4"
+                    type={dispatchPreview?.department ? 'success' : 'warning'}
+                    showIcon
+                    message={
+                      dispatchPreview?.department
+                        ? `系统将按规则“${dispatchPreview.match.rule?.name}”派单至${dispatchPreview.department.name}`
+                        : '暂未匹配到派单规则，提交后将进入待派单并由后台人工选择责任单位'
+                    }
+                  />
+                )}
 
                 <Row gutter={16}>
                   <Col xs={24} md={12}>
@@ -145,7 +174,15 @@ const PublicSubmit: React.FC = () => {
                     <Button type="primary" htmlType="submit" icon={<Send size={16} />}>
                       提交
                     </Button>
-                    <Button onClick={() => form.resetFields()}>重置</Button>
+                    <Button
+                      onClick={() => {
+                        form.resetFields();
+                        setSelectedCategoryId(undefined);
+                        setSelectedAreaId(undefined);
+                      }}
+                    >
+                      重置
+                    </Button>
                   </Space>
                 </Form.Item>
               </Form>

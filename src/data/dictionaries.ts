@@ -1,4 +1,4 @@
-import type { Category, Area, Department } from '@/types';
+import type { Category, Area, Department, DispatchRule } from '@/types';
 
 export const categories: Category[] = [
   { id: 'c1', name: '城市管理', parentId: undefined },
@@ -100,10 +100,97 @@ export const departments: Department[] = [
   },
 ];
 
+export const initialDispatchRules: DispatchRule[] = [
+  {
+    id: 'dr-001',
+    name: '东城区占道经营派单',
+    categoryId: 'c1-3',
+    areaId: 'a1',
+    departmentId: 'd1',
+    priority: 100,
+    enabled: true,
+    remark: '东城区城市管理类占道经营由城市管理委员会牵头办理',
+    createdAt: '2026-06-08 09:00:00',
+    updatedAt: '2026-06-08 09:00:00',
+  },
+  {
+    id: 'dr-002',
+    name: '道路交通类派单',
+    categoryId: 'c2-1',
+    departmentId: 'd8',
+    priority: 80,
+    enabled: true,
+    remark: '道路交通问题默认派至公安局交通管理局',
+    createdAt: '2026-06-08 09:00:00',
+    updatedAt: '2026-06-08 09:00:00',
+  },
+  {
+    id: 'dr-003',
+    name: '公共交通类派单',
+    categoryId: 'c2-2',
+    departmentId: 'd2',
+    priority: 80,
+    enabled: true,
+    remark: '公交、客运服务类问题由交通运输局办理',
+    createdAt: '2026-06-08 09:00:00',
+    updatedAt: '2026-06-08 09:00:00',
+  },
+  {
+    id: 'dr-004',
+    name: '环境污染类派单',
+    categoryId: 'c3',
+    departmentId: 'd3',
+    priority: 70,
+    enabled: true,
+    remark: '环境保护父级分类兜底规则',
+    createdAt: '2026-06-08 09:00:00',
+    updatedAt: '2026-06-08 09:00:00',
+  },
+  {
+    id: 'dr-005',
+    name: '供水排水类派单',
+    categoryId: 'c4-1',
+    departmentId: 'd6',
+    priority: 90,
+    enabled: true,
+    remark: '供水排水问题由水务局办理',
+    createdAt: '2026-06-08 09:00:00',
+    updatedAt: '2026-06-08 09:00:00',
+  },
+  {
+    id: 'dr-006',
+    name: '园林绿化类派单',
+    categoryId: 'c4-3',
+    departmentId: 'd5',
+    priority: 80,
+    enabled: true,
+    remark: '园林绿化设施和养护问题由园林绿化局办理',
+    createdAt: '2026-06-08 09:00:00',
+    updatedAt: '2026-06-08 09:00:00',
+  },
+  {
+    id: 'dr-007',
+    name: '住房物业类派单',
+    categoryId: 'c5',
+    departmentId: 'd4',
+    priority: 70,
+    enabled: true,
+    remark: '住房物业父级分类兜底规则',
+    createdAt: '2026-06-08 09:00:00',
+    updatedAt: '2026-06-08 09:00:00',
+  },
+];
+
 export const sourceMap: Record<string, string> = {
   web: '网页提交',
   hotline: '热线导入',
   backend: '后台录入',
+};
+
+export const dispatchSourceMap: Record<string, string> = {
+  rule: '规则自动派单',
+  manual: '人工选择派单',
+  pending_manual: '待人工选择',
 };
 
 export const statusMap: Record<string, string> = {

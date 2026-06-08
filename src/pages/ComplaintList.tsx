@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
+  Alert,
   Table,
   Button,
   Input,
@@ -25,13 +26,16 @@ import { useAppStore, type BackendComplaintForm } from '@/store/appStore';
 import type { Complaint, ComplaintSource, ComplaintStatus } from '@/types';
 import { StatusTag, SourceTag, SatisfactionTag } from '@/components/StatusTags';
 import { categories, areas, departments, statusMap, sourceMap } from '@/data/dictionaries';
+import { matchDispatchRule } from '@/lib/utils';
 
 const ComplaintList: React.FC = () => {
   const navigate = useNavigate();
-  const { complaints, updateComplaint, addTimeline, submitBackendComplaint } = useAppStore();
+  const { complaints, dispatchRules, updateComplaint, addTimeline, submitBackendComplaint } = useAppStore();
   const [isModalVisible, setIsModalVisible] = useState(false);
-  const [form] = Form.useForm();
+  const [form] = Form.useForm<BackendComplaintForm>();
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>();
+  const [selectedAreaId, setSelectedAreaId] = useState<string>();
 
   const [filters, setFilters] = useState({
     keyword: '',
@@ -189,11 +193,38 @@ const ComplaintList: React.FC = () => {
     message.success('催办通知已发送');
   };
 
-  const handleSubmit = (values: BackendComplaintForm) => {
-    submitBackendComplaint(values);
-    message.success('投诉已录入，系统已自动派单');
-    setIsModalVisible(false);
+  const dispatchPreview = useMemo(() => {
+    if (!selectedCategoryId || !selectedAreaId) return null;
+    const match = matchDispatchRule(dispatchRules, categories, selectedCategoryId, selectedAreaId);
+    const department = departments.find((item) => item.id === match.rule?.departmentId);
+    return {
+      match,
+      department,
+    };
+  }, [dispatchRules, selectedAreaId, selectedCategoryId]);
+
+  const resetBackendForm = () => {
     form.resetFields();
+    setSelectedCategoryId(undefined);
+    setSelectedAreaId(undefined);
+  };
+
+  const closeBackendModal = () => {
+    setIsModalVisible(false);
+    resetBackendForm();
+  };
+
+  const handleSubmit = (values: BackendComplaintForm) => {
+    const complaint = submitBackendComplaint(values);
+    if (complaint.dispatchSource === 'rule') {
+      message.success('投诉已录入，系统已按规则自动派单');
+    } else if (complaint.dispatchSource === 'manual') {
+      message.success('投诉已录入，已按人工选择派单');
+    } else {
+      message.warning('投诉已录入，未匹配到派单规则，请后续人工选择责任单位');
+    }
+    setIsModalVisible(false);
+    resetBackendForm();
   };
 
   const resetFilters = () => {
@@ -308,7 +339,7 @@ const ComplaintList: React.FC = () => {
       <Modal
         title="后台录入投诉"
         open={isModalVisible}
-        onCancel={() => setIsModalVisible(false)}
+        onCancel={closeBackendModal}
         footer={null}
         width={700}
       >
@@ -329,7 +360,13 @@ const ComplaintList: React.FC = () => {
                 name="categoryId"
                 rules={[{ required: true, message: '请选择事项分类' }]}
               >
-                <Select placeholder="请选择分类">
+                <Select
+                  placeholder="请选择分类"
+                  onChange={(value) => {
+                    setSelectedCategoryId(value);
+                    form.setFieldsValue({ departmentId: undefined });
+                  }}
+                >
                   {parentCategories.map((cat) => (
                     <Select.OptGroup key={cat.id} label={cat.name}>
                       {categories
@@ -352,7 +389,13 @@ const ComplaintList: React.FC = () => {
                 name="areaId"
                 rules={[{ required: true, message: '请选择所属区域' }]}
               >
-                <Select placeholder="请选择区域">
+                <Select
+                  placeholder="请选择区域"
+                  onChange={(value) => {
+                    setSelectedAreaId(value);
+                    form.setFieldsValue({ departmentId: undefined });
+                  }}
+                >
                   {areas.map((a) => (
                     <Select.Option key={a.id} value={a.id}>
                       {a.name}
@@ -365,7 +408,7 @@ const ComplaintList: React.FC = () => {
               <Form.Item
                 label="责任单位"
                 name="departmentId"
-                rules={[{ required: true, message: '请选择责任单位' }]}
+                extra={dispatchPreview?.department ? '已匹配到规则时会优先使用规则派单，无需人工选择。' : '未匹配到规则时可人工选择责任单位；不选择则进入待派单。'}
               >
                 <Select placeholder="请选择责任单位">
                   {departments.map((d) => (
@@ -377,6 +420,18 @@ const ComplaintList: React.FC = () => {
               </Form.Item>
             </Col>
           </Row>
+          {selectedCategoryId && selectedAreaId && (
+            <Alert
+              className="mb-4"
+              type={dispatchPreview?.department ? 'success' : 'warning'}
+              showIcon
+              message={
+                dispatchPreview?.department
+                  ? `已匹配规则：${dispatchPreview.match.rule?.name}，将自动派单至${dispatchPreview.department.name}`
+                  : '未匹配到派单规则，请人工选择责任单位或提交为待派单'
+              }
+            />
+          )}
           <Form.Item
             label="投诉内容"
             name="content"
@@ -412,7 +467,7 @@ const ComplaintList: React.FC = () => {
               <Button type="primary" htmlType="submit">
                 提交录入
               </Button>
-              <Button onClick={() => setIsModalVisible(false)}>取消</Button>
+              <Button onClick={closeBackendModal}>取消</Button>
             </Space>
           </Form.Item>
         </Form>
