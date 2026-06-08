@@ -13,6 +13,7 @@ import {
   message,
   Tag,
   Divider,
+  List,
 } from 'antd';
 import {
   ArrowLeft,
@@ -26,6 +27,9 @@ import {
   MapPin,
   FileText,
   ThumbsUp,
+  BookOpen,
+  Search,
+  Eye,
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -33,12 +37,93 @@ import { useAppStore } from '@/store/appStore';
 import type { ExtensionRequest } from '@/types';
 import { StatusTag, SourceTag, SatisfactionTag } from '@/components/StatusTags';
 import ComplaintTimeline from '@/components/ComplaintTimeline';
-import { departments } from '@/data/dictionaries';
+import type { KnowledgeEntry } from '@/types';
+import { categories, departments } from '@/data/dictionaries';
+
+const getRootCategoryId = (categoryId: string) => {
+  const category = categories.find((item) => item.id === categoryId);
+  return category?.parentId || category?.id || categoryId;
+};
+
+const isRecommendedKnowledge = (entry: KnowledgeEntry, complaintCategoryId: string) => {
+  return getRootCategoryId(entry.categoryId) === getRootCategoryId(complaintCategoryId);
+};
+
+interface KnowledgeTemplateListProps {
+  entries: KnowledgeEntry[];
+  complaintCategoryId: string;
+  onPreview: (entry: KnowledgeEntry) => void;
+  onUse: (entry: KnowledgeEntry) => void;
+  emptyText: string;
+}
+
+const KnowledgeTemplateList: React.FC<KnowledgeTemplateListProps> = ({
+  entries,
+  complaintCategoryId,
+  onPreview,
+  onUse,
+  emptyText,
+}) => (
+  <List
+    dataSource={entries}
+    locale={{ emptyText }}
+    renderItem={(entry) => {
+      const recommended = isRecommendedKnowledge(entry, complaintCategoryId);
+      return (
+        <List.Item
+          className={`rounded-lg border px-3 py-3 mb-2 ${
+            recommended ? 'border-orange-200 bg-orange-50/60' : 'border-gray-100 bg-white'
+          }`}
+          actions={[
+            <Button key="preview" type="link" size="small" icon={<Eye size={14} />} onClick={() => onPreview(entry)}>
+              预览
+            </Button>,
+            <Button key="use" type="link" size="small" onClick={() => onUse(entry)}>
+              选用
+            </Button>,
+          ]}
+        >
+          <List.Item.Meta
+            title={
+              <Space size={6} wrap>
+                <span>{entry.title}</span>
+                {recommended && <Tag color="orange">推荐</Tag>}
+                <Tag color={entry.status === 'active' ? 'green' : 'default'}>
+                  {entry.status === 'active' ? '启用' : '停用'}
+                </Tag>
+              </Space>
+            }
+            description={
+              <div className="space-y-2">
+                <div className="text-xs text-gray-500">
+                  {entry.categoryName} · {entry.departmentName} · 已用{entry.usageCount}次
+                </div>
+                <div className="text-sm text-gray-600 line-clamp-2">{entry.content}</div>
+                <Space size={[0, 4]} wrap>
+                  {entry.keywords.slice(0, 4).map((keyword) => (
+                    <Tag key={keyword}>{keyword}</Tag>
+                  ))}
+                </Space>
+              </div>
+            }
+          />
+        </List.Item>
+      );
+    }}
+  />
+);
 
 const ComplaintDetail: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
-  const { getComplaintById, updateComplaint, addTimeline, addExtensionRequest } = useAppStore();
+  const {
+    getComplaintById,
+    updateComplaint,
+    addTimeline,
+    addExtensionRequest,
+    knowledgeEntries,
+    applyKnowledgeEntry,
+  } = useAppStore();
   const complaint = getComplaintById(id || '');
 
   const [transferModalVisible, setTransferModalVisible] = useState(false);
@@ -47,6 +132,8 @@ const ComplaintDetail: React.FC = () => {
   const [urgeModalVisible, setUrgeModalVisible] = useState(false);
   const [reviewModalVisible, setReviewModalVisible] = useState(false);
   const [processModalVisible, setProcessModalVisible] = useState(false);
+  const [knowledgeKeyword, setKnowledgeKeyword] = useState('');
+  const [previewKnowledge, setPreviewKnowledge] = useState<KnowledgeEntry | null>(null);
   const [form] = Form.useForm();
 
   if (!complaint) {
@@ -185,6 +272,37 @@ const ComplaintDetail: React.FC = () => {
     message.success('办理结果已提交');
     setProcessModalVisible(false);
     form.resetFields();
+  };
+
+  const activeKnowledgeEntries = knowledgeEntries
+    .filter((entry) => entry.status === 'active')
+    .sort((a, b) => b.usageCount - a.usageCount);
+
+  const keyword = knowledgeKeyword.trim();
+  const filteredKnowledgeEntries = activeKnowledgeEntries.filter((entry) => {
+    if (!keyword) return true;
+    return (
+      entry.title.includes(keyword) ||
+      entry.code.includes(keyword) ||
+      entry.content.includes(keyword) ||
+      entry.categoryName.includes(keyword) ||
+      entry.departmentName.includes(keyword) ||
+      entry.keywords.some((item) => item.includes(keyword))
+    );
+  });
+
+  const recommendedKnowledgeEntries = filteredKnowledgeEntries.filter((entry) =>
+    isRecommendedKnowledge(entry, complaint.categoryId)
+  );
+  const otherKnowledgeEntries = filteredKnowledgeEntries.filter(
+    (entry) => !isRecommendedKnowledge(entry, complaint.categoryId)
+  );
+
+  const handleUseKnowledge = (entry: KnowledgeEntry) => {
+    form.setFieldsValue({ content: entry.content });
+    applyKnowledgeEntry(entry.id);
+    setPreviewKnowledge(null);
+    message.success('已选用知识库模板');
   };
 
   const isOverdue = dayjs().isAfter(dayjs(complaint.deadline)) && complaint.status !== 'completed';
@@ -508,11 +626,56 @@ const ComplaintDetail: React.FC = () => {
       <Modal
         title="提交办理结果"
         open={processModalVisible}
-        onCancel={() => setProcessModalVisible(false)}
+        onCancel={() => {
+          setProcessModalVisible(false);
+          setKnowledgeKeyword('');
+        }}
         footer={null}
-        width={600}
+        width={880}
       >
         <Form form={form} layout="vertical" onFinish={handleProcess}>
+          <div className="mb-4 rounded-lg border border-blue-100 bg-blue-50/40 p-4">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <div className="flex items-center gap-2 font-medium text-gray-800">
+                <BookOpen size={16} className="text-blue-500" />
+                知识库模板
+              </div>
+              <Input
+                style={{ width: 280 }}
+                placeholder="搜索模板标题、关键词或内容"
+                prefix={<Search size={15} className="text-gray-400" />}
+                value={knowledgeKeyword}
+                onChange={(event) => setKnowledgeKeyword(event.target.value)}
+                allowClear
+              />
+            </div>
+            <div className="max-h-80 overflow-y-auto pr-1">
+              {!keyword && recommendedKnowledgeEntries.length > 0 && (
+                <>
+                  <div className="text-xs text-gray-500 mb-2">
+                    按当前事项分类推荐
+                  </div>
+                  <KnowledgeTemplateList
+                    entries={recommendedKnowledgeEntries}
+                    complaintCategoryId={complaint.categoryId}
+                    onPreview={setPreviewKnowledge}
+                    onUse={handleUseKnowledge}
+                    emptyText="暂无推荐模板"
+                  />
+                </>
+              )}
+              <div className="text-xs text-gray-500 mb-2">
+                {keyword ? '搜索结果' : '全部可用模板'}
+              </div>
+              <KnowledgeTemplateList
+                entries={keyword ? filteredKnowledgeEntries : otherKnowledgeEntries}
+                complaintCategoryId={complaint.categoryId}
+                onPreview={setPreviewKnowledge}
+                onUse={handleUseKnowledge}
+                emptyText="暂无可用模板"
+              />
+            </div>
+          </div>
           <Form.Item
             label="办理结果"
             name="content"
@@ -532,10 +695,56 @@ const ComplaintDetail: React.FC = () => {
               <Button type="primary" htmlType="submit">
                 提交办理结果
               </Button>
-              <Button onClick={() => setProcessModalVisible(false)}>取消</Button>
+              <Button
+                onClick={() => {
+                  setProcessModalVisible(false);
+                  setKnowledgeKeyword('');
+                }}
+              >
+                取消
+              </Button>
             </Space>
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        title="模板预览"
+        open={!!previewKnowledge}
+        onCancel={() => setPreviewKnowledge(null)}
+        footer={
+          previewKnowledge ? (
+            <Space>
+              <Button onClick={() => setPreviewKnowledge(null)}>关闭</Button>
+              <Button type="primary" onClick={() => handleUseKnowledge(previewKnowledge)}>
+                使用此模板
+              </Button>
+            </Space>
+          ) : null
+        }
+        width={720}
+      >
+        {previewKnowledge && (
+          <div className="space-y-4">
+            <Descriptions column={2} size="small" bordered>
+              <Descriptions.Item label="模板标题" span={2}>
+                {previewKnowledge.title}
+              </Descriptions.Item>
+              <Descriptions.Item label="模板编号">{previewKnowledge.code}</Descriptions.Item>
+              <Descriptions.Item label="使用次数">{previewKnowledge.usageCount}</Descriptions.Item>
+              <Descriptions.Item label="事项分类">{previewKnowledge.categoryName}</Descriptions.Item>
+              <Descriptions.Item label="责任单位">{previewKnowledge.departmentName}</Descriptions.Item>
+            </Descriptions>
+            <Space size={[0, 6]} wrap>
+              {previewKnowledge.keywords.map((keywordItem) => (
+                <Tag key={keywordItem}>{keywordItem}</Tag>
+              ))}
+            </Space>
+            <div className="whitespace-pre-wrap leading-7 rounded-lg border border-gray-100 bg-gray-50 p-4">
+              {previewKnowledge.content}
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );

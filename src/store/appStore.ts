@@ -5,6 +5,7 @@ import type {
   Complaint,
   DashboardStats,
   ExtensionRequest,
+  KnowledgeEntry,
   NotificationType,
   TimelineRecord,
   User,
@@ -16,6 +17,7 @@ import {
   generateNotifications,
 } from '@/data/mockData';
 import { categories, areas, departments } from '@/data/dictionaries';
+import { initialKnowledgeEntries } from '@/data/knowledgeBase';
 
 export interface PublicComplaintForm {
   title: string;
@@ -36,9 +38,13 @@ interface AppState {
   complaints: Complaint[];
   extensionRequests: ExtensionRequest[];
   notifications: BusinessNotification[];
+  knowledgeEntries: KnowledgeEntry[];
   dashboardStats: DashboardStats | null;
   setUser: (user: User | null) => void;
   getComplaintById: (id: string) => Complaint | undefined;
+  addKnowledgeEntry: (entry: Omit<KnowledgeEntry, 'id' | 'code' | 'usageCount' | 'updatedAt'>) => void;
+  updateKnowledgeEntry: (id: string, updates: Partial<KnowledgeEntry>) => void;
+  applyKnowledgeEntry: (id: string) => void;
   addComplaint: (complaint: Complaint) => void;
   submitPublicComplaint: (values: PublicComplaintForm) => Complaint;
   submitBackendComplaint: (values: BackendComplaintForm) => Complaint;
@@ -80,12 +86,50 @@ export const useAppStore = create<AppState>((set, get) => ({
   complaints: initialComplaints,
   extensionRequests: initialExtensions,
   notifications: initialNotifications,
+  knowledgeEntries: initialKnowledgeEntries,
   dashboardStats: initialStats,
 
   setUser: (user) => set({ user }),
 
   getComplaintById: (id) => {
     return get().complaints.find((c) => c.id === id);
+  },
+
+  addKnowledgeEntry: (entry) => {
+    const nextNumber = get().knowledgeEntries.length + 1;
+    const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    set((state) => ({
+      knowledgeEntries: [
+        {
+          ...entry,
+          id: `kb-${Date.now()}`,
+          code: `KB-${String(nextNumber).padStart(3, '0')}`,
+          usageCount: 0,
+          updatedAt: now,
+        },
+        ...state.knowledgeEntries,
+      ],
+    }));
+  },
+
+  updateKnowledgeEntry: (id, updates) => {
+    const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    set((state) => ({
+      knowledgeEntries: state.knowledgeEntries.map((entry) =>
+        entry.id === id ? { ...entry, ...updates, updatedAt: now } : entry
+      ),
+    }));
+  },
+
+  applyKnowledgeEntry: (id) => {
+    const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    set((state) => ({
+      knowledgeEntries: state.knowledgeEntries.map((entry) =>
+        entry.id === id
+          ? { ...entry, usageCount: entry.usageCount + 1, updatedAt: now }
+          : entry
+      ),
+    }));
   },
 
   addComplaint: (complaint) => {

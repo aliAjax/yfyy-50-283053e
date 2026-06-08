@@ -44,6 +44,24 @@ export interface Department {
   type: string;
 }
 
+export type KnowledgeStatus = 'active' | 'inactive';
+
+export interface KnowledgeEntry {
+  id: string;
+  title: string;
+  code: string;
+  categoryId: string;
+  categoryName: string;
+  departmentId: string;
+  departmentName: string;
+  content: string;
+  keywords: string[];
+  status: KnowledgeStatus;
+  usageCount: number;
+  creator: string;
+  updatedAt: string;
+}
+
 export interface TimelineRecord {
   id: string;
   complaintId: string;

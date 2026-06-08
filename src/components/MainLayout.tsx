@@ -10,6 +10,7 @@ import {
   LogOut,
   User,
   Bell,
+  BookOpen,
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAppStore } from '@/store/appStore';
@@ -47,6 +48,11 @@ const menuItems = [
     icon: <BarChart3 size={18} />,
     label: '统计分析',
   },
+  {
+    key: '/knowledge-base',
+    icon: <BookOpen size={18} />,
+    label: '知识库管理',
+  },
 ];
 
 const titleMap: Record<string, string> = {
@@ -56,6 +62,7 @@ const titleMap: Record<string, string> = {
   '/my-tasks': '待办事项',
   '/supervision': '督办管理',
   '/statistics': '统计分析',
+  '/knowledge-base': '知识库管理',
   '/notifications': '通知中心',
 };
 

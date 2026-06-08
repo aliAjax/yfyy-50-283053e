@@ -11,6 +11,7 @@ import MyTasks from '@/pages/MyTasks';
 import Supervision from '@/pages/Supervision';
 import Statistics from '@/pages/Statistics';
 import NotificationCenter from '@/pages/NotificationCenter';
+import KnowledgeBase from '@/pages/KnowledgeBase';
 import MainLayout from '@/components/MainLayout';
 import { useAppStore } from '@/store/appStore';
 
@@ -134,6 +135,16 @@ export default function App() {
               <ProtectedRoute>
                 <MainLayout>
                   <Statistics />
+                </MainLayout>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/knowledge-base"
+            element={
+              <ProtectedRoute>
+                <MainLayout>
+                  <KnowledgeBase />
                 </MainLayout>
               </ProtectedRoute>
             }
