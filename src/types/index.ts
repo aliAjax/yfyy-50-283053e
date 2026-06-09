@@ -236,21 +236,123 @@ export interface SimulationStep {
   id: string;
   actionType: ProcessActionType;
   actionName: string;
+  timelineType: TimelineType;
   fromStatus: ComplaintStatus;
   toStatus: ComplaintStatus | null;
   operator: string;
+  operatorRole: SimulationRole;
   content: string;
   timestamp: string;
   remark?: string;
+  departmentChanged?: {
+    fromDepartmentId: string;
+    fromDepartmentName: string;
+    toDepartmentId: string;
+    toDepartmentName: string;
+  };
+  deadlineChanged?: {
+    fromDeadline: string;
+    toDeadline: string;
+    days: number;
+  };
+  notifications?: SimulationNotification[];
+  extensionRequestId?: string;
+  assignSource?: AssignSource;
+  dispatchRuleName?: string;
+  satisfaction?: number;
+  isSystemStep?: boolean;
 }
 
 export interface SimulationState {
   complaintId: string;
   complaintTitle: string;
+  complaintContent: string;
   currentStatus: ComplaintStatus;
   history: SimulationStep[];
   startStatus: ComplaintStatus;
   startTimestamp: string;
+  currentRole: SimulationRole;
+  source: ComplaintSource;
+  categoryId: string;
+  categoryName: string;
+  areaId: string;
+  areaName: string;
+  departmentId: string;
+  departmentName: string;
+  createdAt: string;
+  deadline: string;
+  finishedAt?: string;
+  contactName: string;
+  contactPhone: string;
+  address?: string;
+  urgeCount: number;
+  notifications: SimulationNotification[];
+  extensionRequests: SimulationExtensionRequest[];
+  assignSource?: AssignSource;
+  dispatchRuleName?: string;
+  satisfaction?: number;
+}
+
+export type SimulationRole = 'supervisor' | 'operator' | 'system';
+
+export interface SimulationNotification {
+  id: string;
+  type: NotificationType;
+  title: string;
+  content: string;
+  targetRole: Exclude<SimulationRole, 'system'>;
+  complaintId: string;
+  extensionRequestId?: string;
+  isRead: boolean;
+  createdAt: string;
+}
+
+export interface SimulationExtensionRequest {
+  id: string;
+  complaintId: string;
+  complaintTitle: string;
+  departmentName: string;
+  days: number;
+  reason: string;
+  status: 'pending' | 'approved' | 'rejected';
+  createdAt: string;
+  approvedAt?: string;
+  approver?: string;
+  approveRemark?: string;
+}
+
+export interface SimulationActionInput {
+  content?: string;
+  departmentId?: string;
+  departmentName?: string;
+  days?: number;
+  reason?: string;
+  assignSource?: AssignSource;
+  dispatchRuleName?: string;
+  satisfaction?: number;
+}
+
+export interface ProcessTraceExport {
+  version: string;
+  exportedAt: string;
+  summary: {
+    complaintId: string;
+    complaintTitle: string;
+    startStatus: ComplaintStatus;
+    currentStatus: ComplaintStatus;
+    departmentName: string;
+    deadline: string;
+    finishedAt?: string;
+    urgeCount: number;
+    notificationCount: number;
+    extensionRequestCount: number;
+    stepCount: number;
+    satisfaction?: number;
+  };
+  steps: SimulationStep[];
+  notifications: SimulationNotification[];
+  extensionRequests: SimulationExtensionRequest[];
+  timelineText: string;
 }
 
 export type KnowledgeStatus = 'active' | 'disabled';

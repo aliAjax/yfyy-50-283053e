@@ -1,1066 +1,702 @@
-import { useState, useMemo, useEffect, useRef } from 'react';
+import { useMemo, useState } from 'react';
 import {
-  Card,
-  Row,
-  Col,
-  Button,
-  Space,
-  Tag,
-  Select,
-  Input,
-  Modal,
-  Form,
-  Timeline,
-  List,
-  Badge,
-  Divider,
-  message,
-  Tooltip,
-  Switch,
-  Tabs,
   Alert,
+  Badge,
+  Button,
+  Card,
+  Col,
+  Descriptions,
+  Divider,
+  Empty,
+  Form,
+  Input,
+  List,
+  Modal,
+  Radio,
+  Row,
+  Select,
+  Space,
+  Statistic,
   Steps,
-  Progress,
-  Avatar,
+  Table,
+  Tag,
+  Timeline,
+  message,
 } from 'antd';
 import {
-  Workflow,
-  Play,
-  RotateCcw,
-  ChevronRight,
-  Settings,
-  Zap,
-  History,
-  CheckCircle,
-  XCircle,
-  Clock,
-  Bell,
-  Send,
   ArrowRight,
-  ThumbsUp,
-  ThumbsDown,
-  Phone,
-  Archive,
-  FileCheck,
-  StepForward,
-  AlertTriangle,
-  FastForward,
-  Sparkles,
-  RefreshCw,
+  Bell,
+  CheckCircle,
+  Copy,
+  Download,
+  FileJson,
   GitBranch,
-  CircleDot,
-  Circle,
-  Flag,
+  History,
+  Play,
+  RefreshCw,
+  RotateCcw,
+  Send,
+  UserCog,
+  Zap,
 } from 'lucide-react';
 import dayjs from 'dayjs';
 import { useAppStore } from '@/store/appStore';
-import { StatusTag, SourceTag } from '@/components/StatusTags';
+import { StatusTag } from '@/components/StatusTags';
 import type {
-  ProcessConfig,
-  ProcessNode,
+  AssignSource,
   ProcessAction,
+  ProcessTraceExport,
+  SimulationActionInput,
+  SimulationRole,
   SimulationState,
   SimulationStep,
-  Complaint,
 } from '@/types';
+import { defaultProcessConfig, getNodeByStatus } from '@/data/processConfig';
 import {
-  defaultProcessConfig,
-  getAvailableActions,
-  getNodeByStatus,
-} from '@/data/processConfig';
-import { statusMap, timelineTypeMap, departments, categories } from '@/data/dictionaries';
+  assignSourceMap,
+  departments,
+  statusMap,
+  timelineTypeMap,
+} from '@/data/dictionaries';
+import {
+  copyTraceToClipboard,
+  createQuickSimulation,
+  createSimulationFromComplaint,
+  downloadTraceAsJson,
+  downloadTraceAsText,
+  executeSimulationAction,
+  exportProcessTrace,
+  getAvailableActionsForRole,
+  resetSimulation,
+  switchSimulationRole,
+  undoLastStep,
+} from '@/lib/simulationEngine';
 
 const { TextArea } = Input;
-const { Step } = Steps;
 
-const getActionIcon = (iconName: string, size = 16) => {
-  const iconProps = { size };
-  switch (iconName) {
-    case 'check':
-      return <CheckCircle {...iconProps} />;
-    case 'send':
-      return <Send {...iconProps} />;
-    case 'arrow-right':
-      return <ArrowRight {...iconProps} />;
-    case 'file-check':
-      return <FileCheck {...iconProps} />;
-    case 'rotate-ccw':
-      return <RotateCcw {...iconProps} />;
-    case 'clock':
-      return <Clock {...iconProps} />;
-    case 'thumbs-up':
-      return <ThumbsUp {...iconProps} />;
-    case 'thumbs-down':
-      return <ThumbsDown {...iconProps} />;
-    case 'bell':
-      return <Bell {...iconProps} />;
-    case 'check-circle':
-      return <CheckCircle {...iconProps} />;
-    case 'x-circle':
-      return <XCircle {...iconProps} />;
-    case 'phone':
-      return <Phone {...iconProps} />;
-    case 'archive':
-      return <Archive {...iconProps} />;
-    default:
-      return <Zap {...iconProps} />;
-  }
+const roleLabels: Record<SimulationRole, string> = {
+  supervisor: '督办员',
+  operator: '经办人',
+  system: '系统',
 };
 
-const getStatusColor = (color: string) => {
-  const colorMap: Record<string, string> = {
-    success: '#52c41a',
-    processing: '#1890ff',
-    warning: '#faad14',
-    error: '#ff4d4f',
-    default: '#8c8c8c',
-  };
-  return colorMap[color] || '#8c8c8c';
-};
-
-const autoDemoSteps = [
-  { action: 'accept', content: '投诉符合受理条件，予以受理' },
-  { action: 'assign', content: '根据分类和区域自动派单至城市管理委员会' },
-  { action: 'process', content: '已完成现场整治，清理占道经营3处，教育劝导5人' },
-  { action: 'review_pass', content: '办理结果符合要求，审核通过' },
-  { action: 'followup', content: '电话回访群众，对处理结果表示满意，满意度5星' },
+const roleOptions = [
+  { label: '督办员', value: 'supervisor' },
+  { label: '经办人', value: 'operator' },
 ];
+
+const actionColorMap: Record<string, string> = {
+  accept: 'blue',
+  assign: 'blue',
+  transfer: 'purple',
+  process: 'cyan',
+  return: 'red',
+  delay_request: 'orange',
+  delay_approve: 'green',
+  delay_reject: 'red',
+  urge: 'orange',
+  review_pass: 'green',
+  review_reject: 'red',
+  followup: 'blue',
+  complete: 'green',
+};
 
 const ProcessSimulator: React.FC = () => {
   const { complaints } = useAppStore();
-  const [processConfig, setProcessConfig] = useState<ProcessConfig>(defaultProcessConfig);
-  const [selectedComplaintId, setSelectedComplaintId] = useState<string>('');
   const [simulation, setSimulation] = useState<SimulationState | null>(null);
-  const [actionModalVisible, setActionModalVisible] = useState(false);
+  const [selectedComplaintId, setSelectedComplaintId] = useState('');
+  const [role, setRole] = useState<SimulationRole>('supervisor');
   const [currentAction, setCurrentAction] = useState<ProcessAction | null>(null);
-  const [editingNode, setEditingNode] = useState<ProcessNode | null>(null);
-  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [actionModalVisible, setActionModalVisible] = useState(false);
+  const [tracePreview, setTracePreview] = useState<ProcessTraceExport | null>(null);
   const [form] = Form.useForm();
-  const [editForm] = Form.useForm();
-  const [isAutoPlaying, setIsAutoPlaying] = useState(false);
-  const autoPlayRef = useRef<NodeJS.Timeout | null>(null);
 
-  const sortedNodes = useMemo(() => {
-    return [...processConfig.nodes].sort((a, b) => a.order - b.order);
-  }, [processConfig.nodes]);
+  const sortedNodes = useMemo(
+    () => [...defaultProcessConfig.nodes].sort((a, b) => a.order - b.order),
+    []
+  );
 
-  const selectedComplaint = useMemo(() => {
-    return complaints.find((c) => c.id === selectedComplaintId);
-  }, [complaints, selectedComplaintId]);
+  const selectedComplaint = useMemo(
+    () => complaints.find((complaint) => complaint.id === selectedComplaintId),
+    [complaints, selectedComplaintId]
+  );
 
-  const availableActions = useMemo(() => {
-    if (!simulation) return [];
-    return getAvailableActions(simulation.currentStatus, processConfig.actions);
-  }, [simulation, processConfig.actions]);
+  const currentNode = simulation
+    ? getNodeByStatus(simulation.currentStatus, defaultProcessConfig.nodes)
+    : undefined;
 
-  const currentNode = useMemo(() => {
-    if (!simulation) return null;
-    return getNodeByStatus(simulation.currentStatus, processConfig.nodes);
-  }, [simulation, processConfig.nodes]);
+  const availableActions = simulation
+    ? getAvailableActionsForRole(simulation, defaultProcessConfig.actions)
+    : [];
 
-  const isFinalStatus = useMemo(() => {
-    if (!simulation) return false;
-    return processConfig.finalStatuses.includes(simulation.currentStatus);
-  }, [simulation, processConfig.finalStatuses]);
+  const pendingExtension = simulation?.extensionRequests.find(
+    (request) => request.status === 'pending'
+  );
 
-  const complaintOptions = useMemo(() => {
-    return complaints.map((c) => ({
-      label: `${c.id} - ${c.title}`,
-      value: c.id,
-    }));
-  }, [complaints]);
+  const unreadForRole = simulation
+    ? simulation.notifications.filter(
+        (notice) => notice.targetRole === simulation.currentRole && !notice.isRead
+      ).length
+    : 0;
 
-  const currentStepIndex = useMemo(() => {
-    if (!simulation) return -1;
-    const node = getNodeByStatus(simulation.currentStatus, processConfig.nodes);
-    return node ? node.order - 1 : -1;
-  }, [simulation, processConfig.nodes]);
+  const complaintOptions = useMemo(
+    () =>
+      complaints.map((complaint) => ({
+        label: `${complaint.id} - ${complaint.title}`,
+        value: complaint.id,
+      })),
+    [complaints]
+  );
 
-  const progressPercent = useMemo(() => {
-    if (!simulation) return 0;
-    const total = sortedNodes.filter((n) => n.status !== 'overdue' && n.status !== 'returned').length;
-    const current = currentStepIndex >= 0 ? Math.min(currentStepIndex + 1, total) : 0;
-    return Math.round((current / total) * 100);
-  }, [simulation, currentStepIndex, sortedNodes]);
-
-  useEffect(() => {
-    return () => {
-      if (autoPlayRef.current) {
-        clearTimeout(autoPlayRef.current);
-      }
-    };
-  }, []);
-
-  const startQuickSimulation = (startStatus: string = 'pending_accept') => {
-    const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
-    setSimulation({
-      complaintId: 'SIM-' + Date.now().toString().slice(-6),
-      complaintTitle: '模拟投诉 - 占道经营整治',
-      currentStatus: startStatus as any,
-      history: [],
-      startStatus: startStatus as any,
-      startTimestamp: now,
-    });
+  const startQuickSimulation = () => {
+    const next = createQuickSimulation(role);
+    setSimulation(next);
     setSelectedComplaintId('');
-    message.success('已开始新的模拟流程');
+    message.success('已创建独立模拟工单，不影响真实投诉数据');
   };
 
   const handleSelectComplaint = (complaintId: string) => {
-    const complaint = complaints.find((c) => c.id === complaintId);
+    const complaint = complaints.find((item) => item.id === complaintId);
     if (!complaint) return;
-
-    const startStatus = complaint.status;
-    const startTimestamp = dayjs().format('YYYY-MM-DD HH:mm:ss');
-
-    setSimulation({
-      complaintId: complaint.id,
-      complaintTitle: complaint.title,
-      currentStatus: startStatus,
-      history: [],
-      startStatus,
-      startTimestamp,
-    });
     setSelectedComplaintId(complaintId);
-    stopAutoPlay();
+    setSimulation(createSimulationFromComplaint(complaint, role));
+    message.success('已基于真实投诉只读复制模拟场景');
+  };
+
+  const handleRoleChange = (nextRole: SimulationRole) => {
+    setRole(nextRole);
+    setSimulation((prev) => (prev ? switchSimulationRole(prev, nextRole) : prev));
   };
 
   const handleActionClick = (action: ProcessAction) => {
-    if (action.requiresInput) {
-      setCurrentAction(action);
-      setActionModalVisible(true);
-      form.resetFields();
-    } else {
-      executeAction(action, '');
-    }
-  };
-
-  const executeAction = (action: ProcessAction, content: string) => {
     if (!simulation) return;
-
-    const now = dayjs();
-    const fromStatus = simulation.currentStatus;
-
-    const operator =
-      action.role === 'supervisor'
-        ? '督办员'
-        : action.role === 'operator'
-        ? '责任单位经办人'
-        : '系统';
-
-    const step: SimulationStep = {
-      id: `step-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      actionType: action.type,
-      actionName: action.name,
-      fromStatus,
-      toStatus: action.toStatus,
-      operator,
-      content: content || action.description,
-      timestamp: now.format('YYYY-MM-DD HH:mm:ss'),
-    };
-
-    setSimulation({
-      ...simulation,
-      currentStatus: action.toStatus || simulation.currentStatus,
-      history: [...simulation.history, step],
+    setCurrentAction(action);
+    form.resetFields();
+    form.setFieldsValue({
+      content: '',
+      days: 3,
+      assignSource: simulation.assignSource || 'manual',
+      departmentId: simulation.departmentId,
+      satisfaction: simulation.satisfaction || 5,
     });
+    if (action.requiresInput || ['assign', 'transfer', 'delay_request', 'review_pass'].includes(action.type)) {
+      setActionModalVisible(true);
+      return;
+    }
+    doExecuteAction(action, {});
   };
 
-  const handleActionSubmit = (values: { content: string }) => {
-    if (currentAction) {
-      executeAction(currentAction, values.content);
-    }
+  const doExecuteAction = (action: ProcessAction, input: SimulationActionInput) => {
+    setSimulation((prev) => (prev ? executeSimulationAction(prev, action, input) : prev));
     setActionModalVisible(false);
     setCurrentAction(null);
     form.resetFields();
+    message.success(`已模拟「${action.name}」`);
   };
 
-  const handleResetSimulation = () => {
-    if (selectedComplaint) {
-      setSimulation({
-        complaintId: selectedComplaint.id,
-        complaintTitle: selectedComplaint.title,
-        currentStatus: selectedComplaint.status,
-        history: [],
-        startStatus: selectedComplaint.status,
-        startTimestamp: dayjs().format('YYYY-MM-DD HH:mm:ss'),
-      });
-    } else if (simulation) {
-      startQuickSimulation('pending_accept');
-    }
-    stopAutoPlay();
-    message.success('已重置模拟状态');
+  const handleActionSubmit = (values: {
+    content?: string;
+    departmentId?: string;
+    days?: number;
+    assignSource?: AssignSource;
+    dispatchRuleName?: string;
+    satisfaction?: number;
+  }) => {
+    if (!currentAction) return;
+    const department = departments.find((dept) => dept.id === values.departmentId);
+    doExecuteAction(currentAction, {
+      ...values,
+      reason: values.content,
+      departmentName: department?.name,
+    });
   };
 
   const handleUndo = () => {
-    if (!simulation || simulation.history.length === 0) return;
-    const newHistory = [...simulation.history];
-    const lastStep = newHistory.pop()!;
-    setSimulation({
-      ...simulation,
-      currentStatus: lastStep.fromStatus,
-      history: newHistory,
-    });
-    stopAutoPlay();
-    message.info(`已撤销「${lastStep.actionName}」操作`);
+    setSimulation((prev) => (prev ? undoLastStep(prev) : prev));
+    message.info('已撤销最近一步模拟操作');
   };
 
-  const handleEditNode = (node: ProcessNode) => {
-    setEditingNode(node);
-    editForm.setFieldsValue({
-      name: node.name,
-      description: node.description,
-      allowedActions: node.allowedActions,
-    });
-    setEditModalVisible(true);
-  };
-
-  const handleSaveNode = (values: { name: string; description: string; allowedActions: string[] }) => {
-    if (!editingNode) return;
-
-    const updatedNodes = processConfig.nodes.map((n) =>
-      n.id === editingNode.id
-        ? { ...n, name: values.name, description: values.description, allowedActions: values.allowedActions as any }
-        : n
-    );
-
-    setProcessConfig({
-      ...processConfig,
-      nodes: updatedNodes,
-      updatedAt: dayjs().format('YYYY-MM-DD HH:mm:ss'),
-    });
-
-    message.success('节点配置已更新');
-    setEditModalVisible(false);
-    setEditingNode(null);
-  };
-
-  const stopAutoPlay = () => {
-    setIsAutoPlaying(false);
-    if (autoPlayRef.current) {
-      clearTimeout(autoPlayRef.current);
-      autoPlayRef.current = null;
+  const handleReset = () => {
+    if (!simulation) return;
+    if (selectedComplaint) {
+      setSimulation(createSimulationFromComplaint(selectedComplaint, role));
+    } else {
+      setSimulation(resetSimulation(simulation));
     }
+    message.success('已重置模拟状态');
   };
 
-  const startAutoDemo = () => {
-    startQuickSimulation('pending_accept');
-    setTimeout(() => {
-      setIsAutoPlaying(true);
-      runAutoStep(0);
-    }, 300);
-  };
-
-  const runAutoStep = (stepIndex: number) => {
-    if (stepIndex >= autoDemoSteps.length) {
-      setIsAutoPlaying(false);
-      message.success('自动演示完成');
-      return;
+  const handleAutoDemo = () => {
+    const actions = defaultProcessConfig.actions;
+    let next = createQuickSimulation(role);
+    const accept = actions.find((action) => action.type === 'accept');
+    const assign = actions.find((action) => action.type === 'assign');
+    const process = actions.find((action) => action.type === 'process');
+    const review = actions.find((action) => action.type === 'review_pass');
+    if (accept) next = executeSimulationAction(next, accept, {});
+    if (assign) {
+      next = executeSimulationAction(next, assign, {
+        departmentId: departments[0].id,
+        departmentName: departments[0].name,
+        assignSource: 'auto',
+        dispatchRuleName: '东城区占道经营派单规则',
+      });
     }
-
-    const stepData = autoDemoSteps[stepIndex];
-    const action = processConfig.actions.find((a) => a.type === stepData.action);
-
-    if (!action) {
-      runAutoStep(stepIndex + 1);
-      return;
+    if (process) {
+      next = switchSimulationRole(next, 'operator');
+      next = executeSimulationAction(next, process, {
+        content: '已完成现场整治，清理占道经营点位并完成回访记录。',
+      });
     }
-
-    setSimulation((prev) => {
-      if (!prev) return prev;
-
-      const now = dayjs();
-      const fromStatus = prev.currentStatus;
-
-      const operator =
-        action.role === 'supervisor'
-          ? '督办员'
-          : action.role === 'operator'
-          ? '责任单位经办人'
-          : '系统';
-
-      const step: SimulationStep = {
-        id: `step-auto-${Date.now()}-${stepIndex}`,
-        actionType: action.type,
-        actionName: action.name,
-        fromStatus,
-        toStatus: action.toStatus,
-        operator,
-        content: stepData.content,
-        timestamp: now.format('YYYY-MM-DD HH:mm:ss'),
-      };
-
-      return {
-        ...prev,
-        currentStatus: action.toStatus || prev.currentStatus,
-        history: [...prev.history, step],
-      };
-    });
-
-    autoPlayRef.current = setTimeout(() => {
-      runAutoStep(stepIndex + 1);
-    }, 1200);
+    if (review) {
+      next = switchSimulationRole(next, 'supervisor');
+      next = executeSimulationAction(next, review, {
+        content: '办理结果符合要求',
+        satisfaction: 5,
+      });
+    }
+    next = switchSimulationRole(next, role);
+    setSelectedComplaintId('');
+    setSimulation(next);
+    message.success('已生成完整演示轨迹');
   };
 
-  const getTimelineColor = (step: SimulationStep) => {
-    const colorMap: Record<string, string> = {
-      accept: 'blue',
-      assign: 'blue',
-      transfer: 'purple',
-      process: 'cyan',
-      return: 'red',
-      delay: 'orange',
-      delay_approve: 'green',
-      delay_reject: 'red',
-      urge: 'orange',
-      review: 'green',
-      followup: 'blue',
-      complete: 'green',
-      review_pass: 'green',
-      review_reject: 'red',
-      delay_request: 'orange',
-    };
-    return colorMap[step.actionType] || 'gray';
+  const handleCopyTrace = async () => {
+    if (!simulation) return;
+    await copyTraceToClipboard(simulation);
+    message.success('流程轨迹文本已复制');
   };
 
-  const getTimelineDot = (step: SimulationStep) => {
-    const action = processConfig.actions.find((a) => a.type === step.actionType);
-    if (!action) return undefined;
-    return getActionIcon(action.icon, 12);
-  };
+  const actionNeedsDepartment = currentAction?.type === 'assign' || currentAction?.type === 'transfer';
+  const actionNeedsDelay = currentAction?.type === 'delay_request';
+  const actionNeedsAssignSource = currentAction?.type === 'assign';
+  const actionNeedsSatisfaction = currentAction?.type === 'review_pass';
 
-  const mainFlowNodes = sortedNodes.filter(
-    (n) => n.status !== 'overdue' && n.status !== 'returned'
+  const renderStepExtra = (step: SimulationStep) => (
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      <Tag color="default">{timelineTypeMap[step.timelineType] || step.timelineType}</Tag>
+      {step.assignSource && (
+        <Tag color={step.assignSource === 'auto' ? 'green' : 'orange'}>
+          {assignSourceMap[step.assignSource]}
+        </Tag>
+      )}
+      {step.departmentChanged && (
+        <Tag color="purple">
+          {step.departmentChanged.fromDepartmentName} {'->'} {step.departmentChanged.toDepartmentName}
+        </Tag>
+      )}
+      {step.deadlineChanged && (
+        <Tag color="orange">延期{step.deadlineChanged.days}天</Tag>
+      )}
+      {step.satisfaction && <Tag color="gold">满意度{step.satisfaction}分</Tag>}
+      {step.notifications?.map((notice) => (
+        <Tag key={notice.id} color="blue">
+          通知:{notice.title}
+        </Tag>
+      ))}
+      {step.isSystemStep && <Tag color="default">系统步骤</Tag>}
+    </div>
   );
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-3">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-3">
           <GitBranch size={22} className="text-blue-500" />
           <h2 className="text-lg font-semibold text-gray-800">流程配置与模拟器</h2>
-          <Tag color="blue" icon={<Sparkles size={12} />}>
-            可视化
-          </Tag>
+          <Tag color="blue">独立模拟</Tag>
         </div>
         <Space wrap>
-          <Button
-            icon={<FastForward size={14} />}
-            type="primary"
-            onClick={startAutoDemo}
-            loading={isAutoPlaying}
-          >
-            {isAutoPlaying ? '演示中...' : '一键演示'}
+          <Button icon={<Zap size={14} />} onClick={handleAutoDemo}>
+            一键演示
+          </Button>
+          <Button icon={<RefreshCw size={14} />} onClick={handleReset} disabled={!simulation}>
+            重置
           </Button>
           <Button
-            icon={<RefreshCw size={14} />}
-            onClick={handleResetSimulation}
-            disabled={!simulation}
-          >
-            重置模拟
-          </Button>
-          <Button
-            icon={<StepForward size={14} />}
+            icon={<RotateCcw size={14} />}
             onClick={handleUndo}
-            disabled={!simulation || simulation.history.length === 0 || isAutoPlaying}
+            disabled={!simulation || simulation.history.length === 0}
           >
-            撤销一步
+            撤销
           </Button>
         </Space>
       </div>
 
-      {simulation && (
-        <Card className="shadow-sm" size="small">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <Flag size={16} className="text-green-500" />
-              <span className="text-sm font-medium text-gray-700">流程进度</span>
-            </div>
-            <span className="text-sm text-blue-600 font-medium">{progressPercent}%</span>
-          </div>
-          <Progress
-            percent={progressPercent}
-            status={isFinalStatus ? 'success' : 'active'}
-            showInfo={false}
-            strokeColor={{
-              '0%': '#1890ff',
-              '100%': '#52c41a',
-            }}
-          />
-          <Steps
-            size="small"
-            current={currentStepIndex}
-            className="mt-3"
-            items={mainFlowNodes.map((node) => ({
-              title: node.name,
-              description: null,
-            }))}
-          />
-        </Card>
-      )}
-
       <Row gutter={[16, 16]}>
-        <Col xs={24} lg={14} xl={14}>
-          <Card
-            title={
-              <div className="flex items-center gap-2">
-                <Settings size={16} className="text-blue-500" />
-                <span className="font-semibold">流程配置</span>
-              </div>
-            }
-            className="shadow-sm"
-            extra={
-              <Tag color={processConfig.enabled ? 'green' : 'default'}>
-                {processConfig.enabled ? '已启用' : '已停用'}
-              </Tag>
-            }
-          >
-            <div className="mb-4">
-              <div className="text-sm font-medium text-gray-700 mb-1">
-                {processConfig.name}
-              </div>
-              <div className="text-xs text-gray-500">{processConfig.description}</div>
-            </div>
-
-            <Divider className="my-3" />
-
-            <div className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
-              <CircleDot size={14} />
-              主流程节点 ({mainFlowNodes.length})
-            </div>
-
-            <div className="relative space-y-1 mb-6">
-              {mainFlowNodes.map((node, index) => {
-                const nodeActions = processConfig.actions.filter((a) =>
-                  node.allowedActions.includes(a.type)
-                );
-                const isActive = simulation?.currentStatus === node.status;
-                const isPast =
-                  simulation &&
-                  sortedNodes.findIndex((n) => n.status === simulation.currentStatus) >
-                    sortedNodes.findIndex((n) => n.status === node.status);
-
-                return (
-                  <div key={node.id} className="relative">
-                    {index < mainFlowNodes.length - 1 && (
-                      <div
-                        className="absolute left-5 top-10 w-0.5 h-8 z-0"
-                        style={{
-                          backgroundColor: isPast ? '#52c41a' : '#e5e7eb',
-                        }}
-                      />
-                    )}
-
-                    <div
-                      className={`relative border rounded-lg p-4 transition-all bg-white ${
-                        isActive
-                          ? 'border-blue-400 bg-blue-50/40 shadow-md ring-2 ring-blue-100'
-                          : isPast
-                          ? 'border-green-200 bg-green-50/30'
-                          : 'border-gray-200 hover:border-gray-300'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="flex items-start gap-3 flex-1">
-                          <div
-                            className={`w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0 text-white text-sm font-bold shadow-sm ${
-                              isActive
-                                ? 'bg-blue-500'
-                                : isPast
-                                ? 'bg-green-500'
-                                : 'bg-gray-300'
-                            }`}
-                          >
-                            {isPast ? <CheckCircle size={18} /> : node.order}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span
-                                className={`font-medium ${
-                                  isActive || isPast ? 'text-gray-800' : 'text-gray-500'
-                                }`}
-                              >
-                                {node.name}
-                              </span>
-                              <Tag
-                                color={node.color as any}
-                                style={{ fontSize: '11px', margin: 0 }}
-                              >
-                                {statusMap[node.status]}
-                              </Tag>
-                              {isActive && (
-                                <Badge
-                                  status="processing"
-                                  text={
-                                    <span className="text-xs text-blue-600 font-medium">
-                                      当前状态
-                                    </span>
-                                  }
-                                />
-                              )}
-                            </div>
-                            <p className="text-xs text-gray-500 mt-1">
-                              {node.description}
-                            </p>
-                          </div>
-                        </div>
-                        <Button
-                          type="text"
-                          size="small"
-                          icon={<Settings size={13} />}
-                          onClick={() => handleEditNode(node)}
-                        >
-                          配置
-                        </Button>
-                      </div>
-
-                      {nodeActions.length > 0 && (
-                        <div className="mt-3 pl-13">
-                          <div className="text-xs text-gray-400 mb-2">
-                            可执行操作：
-                          </div>
-                          <div className="flex flex-wrap gap-1.5">
-                            {nodeActions.slice(0, 5).map((action) => (
-                              <Tag
-                                key={action.type}
-                                color={
-                                  action.role === 'supervisor'
-                                    ? 'blue'
-                                    : action.role === 'operator'
-                                    ? 'green'
-                                    : 'default'
-                                }
-                                style={{ fontSize: '11px', margin: 0 }}
-                              >
-                                {action.name}
-                              </Tag>
-                            ))}
-                            {nodeActions.length > 5 && (
-                              <Tag style={{ fontSize: '11px', margin: 0 }}>
-                                +{nodeActions.length - 5}
-                              </Tag>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              {sortedNodes
-                .filter((n) => n.status === 'returned' || n.status === 'overdue')
-                .map((node) => {
-                  const nodeActions = processConfig.actions.filter((a) =>
-                    node.allowedActions.includes(a.type)
-                  );
-                  const isActive = simulation?.currentStatus === node.status;
-
-                  return (
-                    <div
-                      key={node.id}
-                      className={`border rounded-lg p-3 transition-all ${
-                        isActive
-                          ? 'border-red-400 bg-red-50/40 shadow-sm'
-                          : 'border-gray-200 hover:border-gray-300'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 mb-1">
-                        <AlertTriangle
-                          size={14}
-                          className={isActive ? 'text-red-500' : 'text-gray-400'}
-                        />
-                        <span
-                          className={`text-sm font-medium ${
-                            isActive ? 'text-gray-800' : 'text-gray-600'
-                          }`}
-                        >
-                          {node.name}
-                        </span>
-                        <Tag color={node.color as any} style={{ fontSize: '10px' }}>
-                          分支
-                        </Tag>
-                      </div>
-                      <p className="text-xs text-gray-500 mb-2">{node.description}</p>
-                      <div className="flex flex-wrap gap-1">
-                        {nodeActions.slice(0, 3).map((action) => (
-                          <Tag
-                            key={action.type}
-                            color="default"
-                            style={{ fontSize: '10px' }}
-                          >
-                            {action.name}
-                          </Tag>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
-            </div>
-
-            <Divider className="my-4" />
-
-            <div className="text-sm font-medium text-gray-700 mb-3">操作角色图例</div>
-            <div className="grid grid-cols-3 gap-3 text-xs">
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-blue-500" />
-                <span className="text-gray-600">督办员操作</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-green-500" />
-                <span className="text-gray-600">经办人操作</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-full bg-gray-400" />
-                <span className="text-gray-600">系统操作</span>
-              </div>
+        <Col xs={24} lg={7}>
+          <Card title="流程节点" className="shadow-sm">
+            <Radio.Group
+              value={role}
+              onChange={(event) => handleRoleChange(event.target.value)}
+              optionType="button"
+              buttonStyle="solid"
+              options={roleOptions}
+              className="mb-4"
+            />
+            <Steps
+              direction="vertical"
+              current={
+                simulation
+                  ? sortedNodes.findIndex((node) => node.status === simulation.currentStatus)
+                  : 0
+              }
+              items={sortedNodes.map((node) => ({
+                title: node.name,
+                description: node.description,
+                status:
+                  simulation?.currentStatus === node.status
+                    ? 'process'
+                    : node.status === 'completed' && simulation?.currentStatus === 'completed'
+                    ? 'finish'
+                    : 'wait',
+              }))}
+            />
+            <Divider />
+            <div className="space-y-2">
+              {defaultProcessConfig.actions.map((action) => (
+                <div
+                  key={action.type}
+                  className="flex items-center justify-between rounded border border-gray-100 px-3 py-2 text-sm"
+                >
+                  <span>{action.name}</span>
+                  <Tag color={action.role === 'operator' ? 'green' : action.role === 'system' ? 'default' : 'blue'}>
+                    {roleLabels[action.role || 'system']}
+                  </Tag>
+                </div>
+              ))}
             </div>
           </Card>
         </Col>
 
-        <Col xs={24} lg={10} xl={10}>
-          <Card
-            title={
-              <div className="flex items-center gap-2">
-                <Zap size={16} className="text-orange-500" />
-                <span className="font-semibold">流程模拟器</span>
-              </div>
-            }
-            className="shadow-sm"
-          >
-            <div className="space-y-4">
-              {!simulation && (
-                <div className="text-center py-6">
-                  <div className="text-sm text-gray-600 mb-3">选择模拟方式</div>
-                  <Space direction="vertical" style={{ width: '100%' }}>
-                    <Button
-                      block
-                      type="primary"
-                      icon={<Sparkles size={14} />}
-                      onClick={() => startQuickSimulation('pending_accept')}
-                    >
-                      快速模拟（从受理开始）
-                    </Button>
-                    <Button
-                      block
-                      icon={<FastForward size={14} />}
-                      onClick={startAutoDemo}
-                    >
-                      一键自动演示完整流程
-                    </Button>
-                  </Space>
-                  <Divider plain>
-                    <span className="text-xs text-gray-400">或选择现有投诉</span>
-                  </Divider>
-                </div>
-              )}
-
-              <div>
-                <label className="text-sm font-medium text-gray-700 mb-2 block">
-                  选择模拟投诉
-                </label>
+        <Col xs={24} lg={10}>
+          <Card title="模拟执行" className="shadow-sm">
+            <Space direction="vertical" style={{ width: '100%' }} size="middle">
+              <div className="grid grid-cols-2 gap-2">
+                <Button type="primary" icon={<Play size={14} />} onClick={startQuickSimulation}>
+                  快速模拟
+                </Button>
                 <Select
                   showSearch
-                  placeholder="选择现有投诉进行模拟"
-                  style={{ width: '100%' }}
+                  placeholder="选择真实投诉只读模拟"
                   value={selectedComplaintId || undefined}
-                  onChange={handleSelectComplaint}
                   options={complaintOptions}
-                  filterOption={(input, option) =>
-                    (option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-                  }
+                  onChange={handleSelectComplaint}
                   allowClear
+                  filterOption={(input, option) =>
+                    (option?.label || '').toLowerCase().includes(input.toLowerCase())
+                  }
                 />
               </div>
 
-              {selectedComplaint && (
-                <div className="bg-gray-50 rounded-lg p-3">
-                  <div className="text-xs text-gray-500 mb-1">已选投诉信息</div>
-                  <div className="text-sm font-medium text-gray-800 mb-1">
-                    {selectedComplaint.title}
-                  </div>
-                  <div className="flex items-center gap-2 text-xs flex-wrap">
-                    <span className="font-mono text-blue-600">
-                      {selectedComplaint.id}
-                    </span>
-                    <StatusTag status={selectedComplaint.status} />
-                    <SourceTag source={selectedComplaint.source} />
-                  </div>
-                </div>
-              )}
-
-              {simulation && currentNode && (
+              {!simulation ? (
+                <Empty description="请选择或创建一个模拟场景" />
+              ) : (
                 <>
-                  <div
-                    className="border rounded-lg p-4 overflow-hidden relative"
-                    style={{
-                      background: `linear-gradient(135deg, ${getStatusColor(
-                        currentNode.color
-                      )}10 0%, transparent 60%)`,
-                    }}
-                  >
-                    <div className="flex items-center justify-between mb-3">
-                      <span className="text-sm font-medium text-gray-700">
-                        当前状态
-                      </span>
-                      {isFinalStatus && (
-                        <Tag color="green" icon={<CheckCircle size={12} />}>
-                          已办结
-                        </Tag>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <div
-                        className="w-14 h-14 rounded-full flex items-center justify-center text-white text-xl font-bold shadow-lg"
-                        style={{ backgroundColor: getStatusColor(currentNode.color) }}
-                      >
-                        {isFinalStatus ? (
-                          <CheckCircle size={26} />
-                        ) : (
-                          <Clock size={26} />
+                  <Card size="small" className="bg-gray-50">
+                    <Descriptions size="small" column={1}>
+                      <Descriptions.Item label="投诉编号">{simulation.complaintId}</Descriptions.Item>
+                      <Descriptions.Item label="标题">{simulation.complaintTitle}</Descriptions.Item>
+                      <Descriptions.Item label="状态">
+                        <StatusTag status={simulation.currentStatus} />
+                        {currentNode && (
+                          <span className="ml-2 text-xs text-gray-500">
+                            {currentNode.description}
+                          </span>
                         )}
-                      </div>
-                      <div>
-                        <div className="text-xl font-bold text-gray-800">
-                          {currentNode.name}
-                        </div>
-                        <div className="text-sm text-gray-500">
-                          {currentNode.description}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between text-xs text-gray-500">
-                      <span>投诉编号：{simulation.complaintId}</span>
-                      <span>已操作 {simulation.history.length} 步</span>
-                    </div>
-                  </div>
+                      </Descriptions.Item>
+                      <Descriptions.Item label="当前角色">
+                        <Tag color={simulation.currentRole === 'operator' ? 'green' : 'blue'}>
+                          {roleLabels[simulation.currentRole]}
+                        </Tag>
+                      </Descriptions.Item>
+                      <Descriptions.Item label="责任部门">{simulation.departmentName}</Descriptions.Item>
+                      <Descriptions.Item label="截止时间">
+                        <span className={dayjs(simulation.deadline).diff(dayjs(), 'day') < 2 ? 'text-red-500' : ''}>
+                          {simulation.deadline}
+                        </span>
+                      </Descriptions.Item>
+                      <Descriptions.Item label="派单方式">
+                        {simulation.assignSource ? assignSourceMap[simulation.assignSource] : '未派单'}
+                        {simulation.dispatchRuleName ? ` · ${simulation.dispatchRuleName}` : ''}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="满意度">
+                        {simulation.satisfaction ? `${simulation.satisfaction}分` : '未评价'}
+                      </Descriptions.Item>
+                    </Descriptions>
+                  </Card>
 
-                  {availableActions.length > 0 && !isFinalStatus && (
-                    <div>
-                      <div className="text-sm font-medium text-gray-700 mb-2 flex items-center gap-2">
-                        <Play size={14} className="text-green-500" />
-                        可执行操作
-                      </div>
-                      <div className="space-y-2">
-                        {availableActions.map((action) => (
-                          <Tooltip
-                            key={action.type}
-                            title={action.description}
-                            placement="topLeft"
-                          >
-                            <Button
-                              block
-                              icon={getActionIcon(action.icon, 14)}
-                              onClick={() => handleActionClick(action)}
-                              className="justify-start h-10"
-                              type={
-                                action.type === 'process' ||
-                                action.type === 'review_pass' ||
-                                action.type === 'accept' ||
-                                action.type === 'assign'
-                                  ? 'primary'
-                                  : 'default'
-                              }
-                              danger={
-                                action.type === 'return' ||
-                                action.type === 'review_reject' ||
-                                action.type === 'delay_reject'
-                              }
-                              disabled={isAutoPlaying}
-                            >
-                              <span className="flex-1 text-left">
-                                {action.name}
-                              </span>
-                              <span className="text-xs opacity-60">
-                                {action.role === 'supervisor'
-                                  ? '督办员'
-                                  : action.role === 'operator'
-                                  ? '经办人'
-                                  : '系统'}
-                              </span>
-                            </Button>
-                          </Tooltip>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {isFinalStatus && (
+                  {pendingExtension && simulation.currentRole === 'supervisor' && (
                     <Alert
-                      type="success"
+                      type="warning"
                       showIcon
-                      icon={<CheckCircle size={18} />}
-                      message="流程已完成"
-                      description="投诉已办结归档，整个流程执行完毕。你可以点击重置模拟重新开始。"
+                      message={`待审批延期申请：${pendingExtension.days}天`}
+                      description={pendingExtension.reason}
                     />
                   )}
 
-                  <Divider className="my-3" />
+                  <Row gutter={8}>
+                    <Col span={8}>
+                      <Statistic title="操作步骤" value={simulation.history.length} />
+                    </Col>
+                    <Col span={8}>
+                      <Statistic title="通知" value={simulation.notifications.length} />
+                    </Col>
+                    <Col span={8}>
+                      <Statistic title="催办" value={simulation.urgeCount} />
+                    </Col>
+                  </Row>
 
                   <div>
-                    <div className="text-sm font-medium text-gray-700 mb-3 flex items-center gap-2">
-                      <History size={14} className="text-gray-500" />
-                      操作历史
-                      <Tag color="blue" style={{ marginLeft: 'auto' }}>
-                        {simulation.history.length} 步
-                      </Tag>
+                    <div className="mb-2 flex items-center gap-2 text-sm font-medium">
+                      <UserCog size={14} />
+                      当前角色可执行动作
+                      {unreadForRole > 0 && <Badge count={unreadForRole} />}
                     </div>
-
-                    {simulation.history.length === 0 ? (
-                      <div className="text-center py-6 text-gray-400">
-                        <History size={28} className="mx-auto mb-2 opacity-30" />
-                        <p className="text-sm">暂无操作记录</p>
-                        <p className="text-xs">点击上方操作按钮开始模拟</p>
-                      </div>
-                    ) : (
-                      <div className="max-h-[360px] overflow-y-auto pr-1">
-                        <Timeline
-                          items={[
-                            {
-                              color: 'gray',
-                              dot: <Circle size={10} className="text-gray-300" />,
-                              children: (
-                                <div>
-                                  <div className="text-xs text-gray-400">
-                                    {simulation.startTimestamp}
-                                  </div>
-                                  <div className="text-sm text-gray-600">
-                                    开始模拟 - 初始状态：
-                                    <span className="font-medium">
-                                      {statusMap[simulation.startStatus]}
-                                    </span>
-                                  </div>
-                                </div>
-                              ),
-                            },
-                            ...[...simulation.history].reverse().map((step) => ({
-                              color: getTimelineColor(step),
-                              dot: getTimelineDot(step),
-                              children: (
-                                <div className="mb-2">
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    <span
-                                      className="text-sm font-medium"
-                                      style={{
-                                        color:
-                                          getTimelineColor(step) === 'red'
-                                            ? '#ff4d4f'
-                                            : getTimelineColor(step) === 'green'
-                                            ? '#52c41a'
-                                            : getTimelineColor(step) === 'blue'
-                                            ? '#1890ff'
-                                            : getTimelineColor(step) === 'orange'
-                                            ? '#faad14'
-                                            : getTimelineColor(step) === 'purple'
-                                            ? '#722ed1'
-                                            : '#1890ff',
-                                      }}
-                                    >
-                                      {step.actionName}
-                                    </span>
-                                    {step.toStatus &&
-                                      step.toStatus !== step.fromStatus && (
-                                        <span className="text-xs text-gray-400 flex items-center gap-0.5">
-                                          <ChevronRight size={10} />
-                                          {statusMap[step.toStatus]}
-                                        </span>
-                                      )}
-                                  </div>
-                                  <div className="text-xs text-gray-400 mt-0.5">
-                                    {step.operator} · {step.timestamp}
-                                  </div>
-                                  <div className="text-xs text-gray-600 mt-1.5 bg-gray-50 rounded px-2.5 py-1.5 leading-relaxed">
-                                    {step.content}
-                                  </div>
-                                </div>
-                              ),
-                            })),
-                          ]}
-                        />
-                      </div>
-                    )}
+                    <div className="grid grid-cols-1 gap-2">
+                      {availableActions.map((action) => (
+                        <Button
+                          key={action.type}
+                          type={
+                            ['accept', 'assign', 'process', 'review_pass'].includes(action.type)
+                              ? 'primary'
+                              : 'default'
+                          }
+                          danger={['return', 'review_reject', 'delay_reject'].includes(action.type)}
+                          icon={<ArrowRight size={14} />}
+                          onClick={() => handleActionClick(action)}
+                        >
+                          {action.name}
+                        </Button>
+                      ))}
+                      {availableActions.length === 0 && (
+                        <Alert type="info" showIcon message="当前角色在此状态下没有可执行动作" />
+                      )}
+                    </div>
                   </div>
+
+                  <Divider />
+                  <Space wrap>
+                    <Button icon={<FileJson size={14} />} onClick={() => downloadTraceAsJson(simulation)}>
+                      导出JSON
+                    </Button>
+                    <Button icon={<Download size={14} />} onClick={() => downloadTraceAsText(simulation)}>
+                      导出TXT
+                    </Button>
+                    <Button icon={<Copy size={14} />} onClick={handleCopyTrace}>
+                      复制轨迹
+                    </Button>
+                    <Button onClick={() => setTracePreview(exportProcessTrace(simulation))}>
+                      预览
+                    </Button>
+                  </Space>
                 </>
               )}
-            </div>
+            </Space>
+          </Card>
+        </Col>
+
+        <Col xs={24} lg={7}>
+          <Card
+            title={
+              <Space>
+                <Bell size={16} />
+                <span>通知与延期</span>
+              </Space>
+            }
+            className="shadow-sm"
+          >
+            {!simulation ? (
+              <Empty description="暂无模拟通知" />
+            ) : (
+              <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                <List
+                  size="small"
+                  dataSource={simulation.notifications}
+                  locale={{ emptyText: '暂无通知' }}
+                  renderItem={(notice) => (
+                    <List.Item>
+                      <List.Item.Meta
+                        title={
+                          <Space wrap>
+                            <span>{notice.title}</span>
+                            <Tag color={notice.targetRole === 'operator' ? 'green' : 'blue'}>
+                              {roleLabels[notice.targetRole]}
+                            </Tag>
+                          </Space>
+                        }
+                        description={
+                          <div>
+                            <div>{notice.content}</div>
+                            <div className="text-xs text-gray-400">{notice.createdAt}</div>
+                          </div>
+                        }
+                      />
+                    </List.Item>
+                  )}
+                />
+                <Divider className="my-1" />
+                <Table
+                  size="small"
+                  pagination={false}
+                  rowKey="id"
+                  dataSource={simulation.extensionRequests}
+                  columns={[
+                    { title: '天数', dataIndex: 'days', width: 56 },
+                    {
+                      title: '状态',
+                      dataIndex: 'status',
+                      render: (value) => (
+                        <Tag color={value === 'approved' ? 'green' : value === 'rejected' ? 'red' : 'orange'}>
+                          {value === 'approved' ? '已通过' : value === 'rejected' ? '已驳回' : '待审批'}
+                        </Tag>
+                      ),
+                    },
+                    { title: '原因', dataIndex: 'reason' },
+                  ]}
+                />
+              </Space>
+            )}
           </Card>
         </Col>
       </Row>
 
-      <Modal
+      <Card
         title={
-          <div className="flex items-center gap-2">
-            {currentAction && getActionIcon(currentAction.icon, 18)}
-            <span>{currentAction?.name}</span>
-          </div>
+          <Space>
+            <History size={16} />
+            <span>流程轨迹</span>
+          </Space>
         }
+        className="shadow-sm"
+      >
+        {!simulation || simulation.history.length === 0 ? (
+          <Empty description="暂无流程轨迹" />
+        ) : (
+          <Timeline
+            items={simulation.history.map((step) => ({
+              color: actionColorMap[step.actionType] || 'blue',
+              dot: step.isSystemStep ? <CheckCircle size={12} /> : undefined,
+              children: (
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-medium">{step.actionName}</span>
+                    <Tag color={actionColorMap[step.actionType] || 'blue'}>
+                      {roleLabels[step.operatorRole]}
+                    </Tag>
+                    {step.toStatus && step.toStatus !== step.fromStatus && (
+                      <span className="text-xs text-gray-500">
+                        {statusMap[step.fromStatus]} {'->'} {statusMap[step.toStatus]}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-gray-400 mt-1">
+                    {step.operator} · {step.timestamp}
+                  </div>
+                  <div className="mt-1 rounded bg-gray-50 px-3 py-2 text-sm text-gray-700">
+                    {step.content}
+                  </div>
+                  {renderStepExtra(step)}
+                </div>
+              ),
+            }))}
+          />
+        )}
+      </Card>
+
+      <Modal
+        title={currentAction?.name}
         open={actionModalVisible}
         onCancel={() => {
           setActionModalVisible(false);
           setCurrentAction(null);
         }}
         footer={null}
-        width={520}
+        width={560}
         destroyOnClose
       >
         {currentAction && (
           <Form form={form} layout="vertical" onFinish={handleActionSubmit}>
-            {currentAction.description && (
-              <div className="bg-blue-50/60 rounded-lg p-3 mb-4 text-sm text-gray-600">
-                {currentAction.description}
-              </div>
+            <Alert
+              type="info"
+              showIcon
+              className="mb-4"
+              message={`模拟${currentAction.name}`}
+              description="本操作只写入模拟状态，不会调用真实投诉store写操作。"
+            />
+            {actionNeedsDepartment && (
+              <Form.Item
+                label={currentAction.type === 'assign' ? '派单部门' : '转办部门'}
+                name="departmentId"
+                rules={[{ required: true, message: '请选择责任部门' }]}
+              >
+                <Select
+                  showSearch
+                  options={departments.map((dept) => ({ label: dept.name, value: dept.id }))}
+                  filterOption={(input, option) =>
+                    (option?.label || '').toLowerCase().includes(input.toLowerCase())
+                  }
+                />
+              </Form.Item>
+            )}
+            {actionNeedsAssignSource && (
+              <>
+                <Form.Item label="派单方式" name="assignSource">
+                  <Radio.Group>
+                    <Radio value="manual">人工派单</Radio>
+                    <Radio value="auto">智能派单</Radio>
+                  </Radio.Group>
+                </Form.Item>
+                <Form.Item label="派单规则名称" name="dispatchRuleName">
+                  <Input placeholder="例如：东城区占道经营派单规则" />
+                </Form.Item>
+              </>
+            )}
+            {actionNeedsDelay && (
+              <Form.Item
+                label="延期天数"
+                name="days"
+                rules={[{ required: true, message: '请选择延期天数' }]}
+              >
+                <Select
+                  options={[
+                    { label: '3天', value: 3 },
+                    { label: '5天', value: 5 },
+                    { label: '7天', value: 7 },
+                    { label: '10天', value: 10 },
+                  ]}
+                />
+              </Form.Item>
+            )}
+            {actionNeedsSatisfaction && (
+              <Form.Item label="满意度" name="satisfaction">
+                <Radio.Group>
+                  {[1, 2, 3, 4, 5].map((score) => (
+                    <Radio key={score} value={score}>
+                      {score}分
+                    </Radio>
+                  ))}
+                </Radio.Group>
+              </Form.Item>
             )}
             <Form.Item
               label={currentAction.inputLabel || '操作内容'}
               name="content"
               rules={[
                 {
-                  required: true,
+                  required: currentAction.requiresInput,
                   message: `请输入${currentAction.inputLabel || '操作内容'}`,
                 },
               ]}
             >
-              <TextArea
-                rows={4}
-                placeholder={currentAction.inputPlaceholder || '请输入内容'}
-              />
+              <TextArea rows={4} placeholder={currentAction.inputPlaceholder || '请输入内容'} />
             </Form.Item>
-            {simulation && (
-              <div className="text-xs text-gray-500 mb-4 flex items-center gap-2 bg-gray-50 rounded p-2">
-                <AlertTriangle size={12} className="text-orange-500" />
-                <span>
-                  状态变化：
-                  <span className="font-medium">
-                    {statusMap[simulation.currentStatus]}
-                  </span>
-                  {currentAction.toStatus && (
-                    <>
-                      {' → '}
-                      <span className="text-blue-600 font-medium">
-                        {statusMap[currentAction.toStatus]}
-                      </span>
-                    </>
-                  )}
-                  {!currentAction.toStatus && (
-                    <span className="text-gray-400">（不改变状态）</span>
-                  )}
-                </span>
-              </div>
-            )}
             <Form.Item className="mb-0">
               <Space>
-                <Button type="primary" htmlType="submit">
-                  确认执行
+                <Button type="primary" htmlType="submit" icon={<Send size={14} />}>
+                  确认模拟
                 </Button>
-                <Button
-                  onClick={() => {
-                    setActionModalVisible(false);
-                    setCurrentAction(null);
-                  }}
-                >
-                  取消
-                </Button>
+                <Button onClick={() => setActionModalVisible(false)}>取消</Button>
               </Space>
             </Form.Item>
           </Form>
@@ -1068,97 +704,32 @@ const ProcessSimulator: React.FC = () => {
       </Modal>
 
       <Modal
-        title="编辑流程节点配置"
-        open={editModalVisible}
-        onCancel={() => {
-          setEditModalVisible(false);
-          setEditingNode(null);
-        }}
+        title="流程轨迹预览"
+        open={!!tracePreview}
+        onCancel={() => setTracePreview(null)}
         footer={null}
-        width={620}
-        destroyOnClose
+        width={800}
       >
-        {editingNode && (
-          <Form form={editForm} layout="vertical" onFinish={handleSaveNode}>
-            <div className="bg-gray-50 rounded-lg p-3 mb-4">
-              <div className="text-xs text-gray-500 mb-1">节点状态</div>
-              <div className="flex items-center gap-2">
-                <Tag color={editingNode.color as any}>
-                  {statusMap[editingNode.status]}
-                </Tag>
-                <span className="text-sm text-gray-600">
-                  顺序：第 {editingNode.order} 位
-                </span>
-              </div>
-            </div>
-
-            <Form.Item
-              label="节点名称"
-              name="name"
-              rules={[{ required: true, message: '请输入节点名称' }]}
-            >
-              <Input placeholder="请输入节点名称" />
-            </Form.Item>
-
-            <Form.Item label="节点描述" name="description">
-              <TextArea rows={2} placeholder="请输入节点描述" />
-            </Form.Item>
-
-            <Form.Item
-              label="允许的操作"
-              name="allowedActions"
-              rules={[{ required: true, message: '请选择至少一个操作' }]}
-            >
-              <Select
-                mode="multiple"
-                placeholder="选择该状态下允许执行的操作"
-                style={{ width: '100%' }}
-                optionRender={(option) => {
-                  const action = processConfig.actions.find(
-                    (a) => a.type === option.value
-                  );
-                  return (
-                    <div className="flex items-center justify-between">
-                      <span>{option.label}</span>
-                      <Tag color="default" style={{ fontSize: '10px' }}>
-                        {action?.role === 'supervisor'
-                          ? '督办员'
-                          : action?.role === 'operator'
-                          ? '经办人'
-                          : '系统'}
-                      </Tag>
-                    </div>
-                  );
-                }}
-              >
-                {processConfig.actions.map((action) => (
-                  <Select.Option key={action.type} value={action.type}>
-                    {action.name}
-                  </Select.Option>
-                ))}
-              </Select>
-            </Form.Item>
-
-            <div className="text-xs text-gray-500 mb-4">
-              提示：只有勾选的操作在该状态下才会显示为可执行按钮
-            </div>
-
-            <Form.Item className="mb-0">
-              <Space>
-                <Button type="primary" htmlType="submit">
-                  保存配置
-                </Button>
-                <Button
-                  onClick={() => {
-                    setEditModalVisible(false);
-                    setEditingNode(null);
-                  }}
-                >
-                  取消
-                </Button>
-              </Space>
-            </Form.Item>
-          </Form>
+        {tracePreview && (
+          <div className="space-y-4">
+            <Descriptions size="small" bordered column={2}>
+              <Descriptions.Item label="投诉编号">{tracePreview.summary.complaintId}</Descriptions.Item>
+              <Descriptions.Item label="当前状态">
+                {statusMap[tracePreview.summary.currentStatus]}
+              </Descriptions.Item>
+              <Descriptions.Item label="步骤数">{tracePreview.summary.stepCount}</Descriptions.Item>
+              <Descriptions.Item label="通知数">{tracePreview.summary.notificationCount}</Descriptions.Item>
+              <Descriptions.Item label="延期申请">
+                {tracePreview.summary.extensionRequestCount}
+              </Descriptions.Item>
+              <Descriptions.Item label="满意度">
+                {tracePreview.summary.satisfaction ? `${tracePreview.summary.satisfaction}分` : '无'}
+              </Descriptions.Item>
+            </Descriptions>
+            <pre className="max-h-[420px] overflow-auto rounded bg-gray-900 p-4 text-xs leading-relaxed text-gray-100">
+              {tracePreview.timelineText}
+            </pre>
+          </div>
         )}
       </Modal>
     </div>
