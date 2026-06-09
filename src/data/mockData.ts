@@ -744,7 +744,6 @@ export const generateRiskRules = (): RiskRule[] => {
 };
 
 const getRiskLevel = (complaint: Complaint, ruleType: RiskRuleType): RiskLevel => {
-  const isOverdue = dayjs().isAfter(dayjs(complaint.deadline)) && complaint.status !== 'completed';
   const daysLeft = dayjs(complaint.deadline).diff(dayjs(), 'day');
   const urgeCount = complaint.urgeCount || 0;
 
@@ -758,6 +757,19 @@ const getRiskLevel = (complaint: Complaint, ruleType: RiskRuleType): RiskLevel =
     return 'medium';
   }
   return 'low';
+};
+
+const countRecentRepeats = (
+  complaint: Complaint,
+  allComplaints: Complaint[],
+  windowDays: number
+): number => {
+  if (!complaint.isRepeat || !complaint.repeatGroupId) return 1;
+  const groupComplaints = allComplaints.filter(
+    (c) => c.repeatGroupId === complaint.repeatGroupId
+  );
+  const windowStart = dayjs().subtract(windowDays, 'day');
+  return groupComplaints.filter((c) => dayjs(c.createdAt).isAfter(windowStart)).length;
 };
 
 export const generateWarningAlerts = (
@@ -801,7 +813,11 @@ export const generateWarningAlerts = (
           return (c.urgeCount || 0) >= threshold;
         }
         case 'repeat_cluster': {
-          return !!c.isRepeat && (c.repeatCount || 0) >= (rule.threshold.repeatCount ?? 3);
+          if (!c.isRepeat) return false;
+          const repeatThreshold = rule.threshold.repeatCount ?? 3;
+          const windowDays = rule.threshold.repeatDays ?? 7;
+          const recentCount = countRecentRepeats(c, complaints, windowDays);
+          return recentCount >= repeatThreshold;
         }
         case 'low_satisfaction': {
           if (c.status !== 'completed') return false;

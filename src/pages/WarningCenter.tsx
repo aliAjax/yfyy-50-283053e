@@ -152,6 +152,28 @@ const WarningCenter: React.FC = () => {
   useEffect(() => {
     const view = searchParams.get('view');
     if (view === 'rules') setPageView('rules');
+
+    const tab = searchParams.get('tab');
+    const tabToRuleType: Record<string, RiskRuleType | 'delayPending' | undefined> = {
+      expiring: 'expiring',
+      overdue: 'overdue',
+      multiUrge: 'multi_urge',
+      delayPending: 'delayPending',
+    };
+    if (tab && tabToRuleType[tab]) {
+      setPageView('alerts');
+      setActiveRuleType(tabToRuleType[tab] as RiskRuleType | 'delayPending');
+    }
+
+    const areaId = searchParams.get('areaId');
+    const riskLevel = searchParams.get('riskLevel') as RiskLevel | null;
+    if (areaId || riskLevel) {
+      setAlertFilters((prev) => ({
+        ...prev,
+        areaId: areaId || undefined,
+        riskLevel: riskLevel || undefined,
+      }));
+    }
   }, [searchParams]);
 
   const getRiskTag = (level: RiskLevel) => {

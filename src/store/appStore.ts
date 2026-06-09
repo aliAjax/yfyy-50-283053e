@@ -767,7 +767,18 @@ export const useAppStore = create<AppState>((set, get) => ({
             return (c.urgeCount || 0) >= threshold;
           }
           case 'repeat_cluster': {
-            return !!c.isRepeat && (c.repeatCount || 0) >= (rule.threshold.repeatCount ?? 3);
+            if (!c.isRepeat) return false;
+            const repeatThreshold = rule.threshold.repeatCount ?? 3;
+            const windowDays = rule.threshold.repeatDays ?? 7;
+            if (!c.repeatGroupId) return false;
+            const groupComplaints = complaints.filter(
+              (gc) => gc.repeatGroupId === c.repeatGroupId
+            );
+            const windowStart = dayjs().subtract(windowDays, 'day');
+            const recentCount = groupComplaints.filter((gc) =>
+              dayjs(gc.createdAt).isAfter(windowStart)
+            ).length;
+            return recentCount >= repeatThreshold;
           }
           case 'low_satisfaction': {
             if (c.status !== 'completed') return false;
