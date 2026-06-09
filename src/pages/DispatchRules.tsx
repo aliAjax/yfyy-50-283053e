@@ -647,8 +647,14 @@ const DispatchRules: React.FC = () => {
               <div className="mt-3 flex items-start gap-2 rounded-md bg-amber-50 p-2.5 text-xs text-amber-700 border border-amber-200">
                 <Zap size={14} className="text-amber-500 mt-0.5 flex-shrink-0" />
                 <div>
-                  请设置<strong>优先级</strong>和<strong>责任单位</strong>
-                  ，即可查看当前规则在命中列表中的排名。
+                  {previewEnabled === false ? (
+                    <>当前规则已停用，不会参与派单命中排序。</>
+                  ) : (
+                    <>
+                      请设置<strong>优先级</strong>和<strong>责任单位</strong>
+                      ，即可查看当前规则在命中列表中的排名。
+                    </>
+                  )}
                 </div>
               </div>
             )}

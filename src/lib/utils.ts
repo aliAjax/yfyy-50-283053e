@@ -146,7 +146,7 @@ export const getAllMatchingRules = (
     }
   });
 
-  if (currentRule) {
+  if (currentRule?.enabled) {
     const levelInfo = getRuleMatchLevel(
       currentRule.categoryId,
       currentRule.areaId,
@@ -183,7 +183,7 @@ export const getAllMatchingRules = (
     if (b.rule.priority !== a.rule.priority) {
       return b.rule.priority - a.rule.priority;
     }
-    return a.isCurrent ? -1 : b.isCurrent ? 1 : 0;
+    return 0;
   });
 
   return hits;
