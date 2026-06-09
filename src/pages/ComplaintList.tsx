@@ -41,11 +41,22 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { useAppStore } from '@/store/appStore';
-import type { Complaint, ComplaintSource, ComplaintStatus, TimelineRecord, Department, AssignSource, DuplicateComplaintResult, FilterView, ComplaintListFilters, DrillDownType } from '@/types';
+import type { Complaint, TimelineRecord, Department, AssignSource, DuplicateComplaintResult, FilterView, ComplaintListFilters, DrillDownType } from '@/types';
 import { StatusTag, SourceTag, SatisfactionTag } from '@/components/StatusTags';
-import { categories, areas, departments, statusMap, sourceMap, assignSourceMap, statusColorMap } from '@/data/dictionaries';
+import { categories, areas, departments, statusMap, sourceMap, statusColorMap } from '@/data/dictionaries';
 import type { DispatchMatchResult } from '@/lib/utils';
 import { getSimilarityColor, getSimilarityLabel, getSimilarityLevel } from '@/lib/utils';
+
+interface ComplaintSubmitValues {
+  title: string;
+  categoryId: string;
+  areaId: string;
+  departmentId: string;
+  content: string;
+  contactName: string;
+  contactPhone: string;
+  address?: string;
+}
 
 const ComplaintList: React.FC = () => {
   const navigate = useNavigate();
@@ -64,8 +75,7 @@ const ComplaintList: React.FC = () => {
   const [duplicateResults, setDuplicateResults] = useState<DuplicateComplaintResult[]>([]);
   const [submitDuplicateResults, setSubmitDuplicateResults] = useState<DuplicateComplaintResult[]>([]);
   const [showSubmitDuplicateModal, setShowSubmitDuplicateModal] = useState(false);
-  const [pendingSubmitData, setPendingSubmitData] = useState<any>(null);
-  const [checkingDuplicates, setCheckingDuplicates] = useState(false);
+  const [pendingSubmitData, setPendingSubmitData] = useState<ComplaintSubmitValues | null>(null);
 
   const [filters, setFilters] = useState<ComplaintListFilters>(() => {
     const initial: ComplaintListFilters = {
@@ -430,7 +440,7 @@ const ComplaintList: React.FC = () => {
         setAssignSource('manual');
       }
     }
-  }, [selectedCategoryId, selectedAreaId]);
+  }, [form, matchDispatch, selectedCategoryId, selectedAreaId]);
 
   const handleCategoryChange = (value: string) => {
     setSelectedCategoryId(value);
@@ -446,16 +456,7 @@ const ComplaintList: React.FC = () => {
     setAssignSource('manual');
   };
 
-  const doSubmit = (values: {
-    title: string;
-    categoryId: string;
-    areaId: string;
-    departmentId: string;
-    content: string;
-    contactName: string;
-    contactPhone: string;
-    address?: string;
-  }) => {
+  const doSubmit = (values: ComplaintSubmitValues) => {
     const now = dayjs();
     const newId = `C${String(complaints.length + 1).padStart(5, '0')}`;
 
@@ -526,21 +527,7 @@ const ComplaintList: React.FC = () => {
     setShowSubmitDuplicateModal(false);
   };
 
-  const handleSubmit = (values: {
-    title: string;
-    categoryId: string;
-    areaId: string;
-    departmentId: string;
-    content: string;
-    contactName: string;
-    contactPhone: string;
-    address?: string;
-  }) => {
-    setCheckingDuplicates(true);
-
-    const area = areas.find((a) => a.id === values.areaId);
-    const category = categories.find((c) => c.id === values.categoryId);
-
+  const handleSubmit = (values: ComplaintSubmitValues) => {
     const duplicates = detectDuplicates(
       {
         title: values.title,
@@ -551,8 +538,6 @@ const ComplaintList: React.FC = () => {
       },
       undefined
     );
-
-    setCheckingDuplicates(false);
 
     if (duplicates.length > 0) {
       setSubmitDuplicateResults(duplicates);

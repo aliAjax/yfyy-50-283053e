@@ -15,7 +15,6 @@ import {
   Alert,
   Modal,
   Tabs,
-  Empty,
   Descriptions,
   Tooltip,
   Input,
@@ -48,20 +47,20 @@ import {
   GitMerge,
   PlusCircle,
   CheckSquare,
-  Filter,
   Target,
   Zap,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useNavigate } from 'react-router-dom';
 import type { UploadProps } from 'antd';
+import type { UploadFile } from 'antd/es/upload/interface';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { useAppStore } from '@/store/appStore';
 import type { Complaint, TimelineRecord, DuplicateComplaintResult, DispatchRule } from '@/types';
 import { categories, areas, departments } from '@/data/dictionaries';
 import { StatusTag } from '@/components/StatusTags';
-import { matchDispatchRule, getAllMatchingRules, getSimilarityLevel, getSimilarityColor, getSimilarityLabel } from '@/lib/utils';
+import { matchDispatchRule, getAllMatchingRules, getSimilarityColor, getSimilarityLabel } from '@/lib/utils';
 
 type ImportStep = 'upload' | 'preview' | 'duplicate' | 'result';
 type DuplicateAction = 'merge' | 'new';
@@ -155,13 +154,12 @@ const BatchImport: React.FC = () => {
     complaints,
     user,
     detectDuplicates,
-    matchDispatch,
     mergeComplaint,
     dispatchRules,
   } = useAppStore();
   const [activeTab, setActiveTab] = useState('import');
   const [currentStep, setCurrentStep] = useState<ImportStep>('upload');
-  const [fileList, setFileList] = useState<any[]>([]);
+  const [fileList, setFileList] = useState<UploadFile[]>([]);
   const [parsedData, setParsedData] = useState<ParsedRow[]>([]);
   const [isParsing, setIsParsing] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -358,138 +356,6 @@ const BatchImport: React.FC = () => {
     return parsedRow;
   };
 
-  const mockParseFile = (): ParsedRow[] => {
-    const mockRows: Partial<ParsedRow>[] = [
-      {
-        rowIndex: 1,
-        title: '朝阳路占道经营严重影响通行',
-        content: '朝阳路与建国路交叉口，每天傍晚都有大量流动摊贩占道经营，导致行人无法正常通行，存在交通安全隐患。',
-        categoryName: '城市管理 - 占道经营',
-        areaName: '朝阳区',
-        contactName: '张三',
-        contactPhone: '13800138001',
-        address: '朝阳路与建国路交叉口',
-      },
-      {
-        rowIndex: 2,
-        title: '小区垃圾清运不及时异味严重',
-        content: '阳光小区3号楼前的垃圾桶已经3天没有清运了，天气炎热导致异味严重，影响居民生活。',
-        categoryName: '城市管理 - 市容环境',
-        areaName: '海淀区',
-        departmentName: '城市管理委员会',
-        contactName: '李四',
-        contactPhone: '13900139002',
-        address: '阳光小区3号楼',
-      },
-      {
-        rowIndex: 3,
-        title: '',
-        content: '最近施工噪音太大，晚上睡不着觉',
-        categoryName: '环境保护 - 噪音污染',
-        areaName: '西城区',
-        contactName: '',
-        contactPhone: '12345',
-      },
-      {
-        rowIndex: 4,
-        title: '路灯损坏夜间行走不便',
-        content: '人民公园东门附近的路灯坏了，晚上很黑，不安全。',
-        categoryName: '市政设施 - 道路养护',
-        areaName: '东城区',
-        departmentName: '园林绿化局',
-        contactName: '王五',
-        contactPhone: '13700137004',
-        address: '人民公园东门',
-      },
-      {
-        rowIndex: 5,
-        title: '公交站点设置不合理出行不便',
-        content: '新开的居民区附近没有公交站，居民出行很不方便，希望能增设公交站点。',
-        categoryName: '交通运输 - 公共交通',
-        areaName: '通州区',
-        departmentName: '交通运输局',
-        contactName: '赵六',
-        contactPhone: '13600136005',
-        address: '幸福家园小区门口',
-      },
-      {
-        rowIndex: 6,
-        title: '违章建筑搭建存在安全隐患',
-        content: '',
-        categoryName: '城市管理 - 违章建筑',
-        areaName: '丰台区',
-        contactName: '孙七',
-        contactPhone: '13500135006',
-        address: '丰台南路88号',
-      },
-      {
-        rowIndex: 7,
-        title: '下水道堵塞污水外溢',
-        content: '老旧小区下水道经常堵塞，下雨天污水外溢，影响环境卫生。',
-        categoryName: '市政设施 - 供水供电',
-        areaName: '石景山区',
-        departmentName: '水务局',
-        contactName: '周八',
-        contactPhone: '13400134007',
-      },
-      {
-        rowIndex: 8,
-        title: '停车位紧张乱停乱放现象严重',
-        content: '小区内停车位严重不足，车辆乱停乱放，堵塞消防通道，存在安全隐患。',
-        categoryName: '交通运输 - 停车管理',
-        areaName: '大兴区',
-        contactName: '吴九',
-        contactPhone: '13300133008',
-        address: '兴旺小区',
-      },
-      {
-        rowIndex: 9,
-        title: '公园设施老化需要维护',
-        content: '中山公园的健身器材都生锈了，有些已经损坏，存在安全隐患，希望能及时维护更新。',
-        categoryName: '市政设施 - 园林绿化',
-        areaName: '朝阳区',
-        departmentName: '园林绿化局',
-        contactName: '郑十',
-        contactPhone: '13200132009',
-        address: '中山公园内',
-      },
-      {
-        rowIndex: 10,
-        title: '餐饮店油烟污染影响居民生活',
-        content: '楼下的餐饮店油烟直接排到小区里，味道很大，窗户都不敢开。',
-        categoryName: '环境保护 - 大气污染',
-        areaName: '海淀区',
-        departmentName: '生态环境局',
-        contactName: '冯十一',
-        contactPhone: '13100131010',
-        address: '学院路15号',
-      },
-      {
-        rowIndex: 11,
-        title: '广场舞噪音扰民',
-        content: '小区广场每天早上6点就开始跳广场舞，音乐声音很大，严重影响居民休息。',
-        categoryName: '环境保护 - 噪音污染',
-        areaName: '西城区',
-        contactName: '陈十二',
-        contactPhone: '13000130011',
-        address: '和谐家园小区广场',
-      },
-      {
-        rowIndex: 12,
-        title: '共享单车乱停放',
-        content: '地铁站口共享单车乱停乱放，占用人行道，影响行人通行。',
-        categoryName: '城市管理 - 市容环境',
-        areaName: '朝阳区',
-        departmentName: '城市管理委员会',
-        contactName: '褚十三',
-        contactPhone: '15800158012',
-        address: '国贸地铁站C口',
-      },
-    ];
-
-    return mockRows.map((row) => processRow(row));
-  };
-
   const parsePasteText = (text: string): ParsedRow[] => {
     const lines = text.trim().split('\n').filter(line => line.trim() !== '');
     if (lines.length < 2) return [];
@@ -591,7 +457,7 @@ const BatchImport: React.FC = () => {
     if (!firstSheet) return [];
 
     const worksheet = workbook.Sheets[firstSheet];
-    const jsonData: any[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+    const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' }) as unknown[][];
 
     if (jsonData.length < 2) return [];
 
@@ -735,8 +601,9 @@ const BatchImport: React.FC = () => {
         } else {
           message.success(`文件解析完成，共识别 ${finalData.length} 条记录`);
         }
-      } catch (err: any) {
-        message.error(`文件解析失败：${err?.message || '未知错误'}`);
+      } catch (err: unknown) {
+        const errorMessage = err instanceof Error ? err.message : '未知错误';
+        message.error(`文件解析失败：${errorMessage}`);
         setIsParsing(false);
         setCurrentStep('upload');
       }
@@ -1118,13 +985,14 @@ const BatchImport: React.FC = () => {
                 };
               }
             }
-          } catch (err: any) {
+          } catch (err: unknown) {
+            const errorMessage = err instanceof Error ? err.message : '系统异常，导入失败';
             failCount++;
             if (originalIndex >= 0) {
               updatedData[originalIndex] = {
                 ...updatedData[originalIndex],
                 importStatus: 'failed',
-                errors: [...updatedData[originalIndex].errors, err?.message || '系统异常，导入失败'],
+                errors: [...updatedData[originalIndex].errors, errorMessage],
                 mergeValidationError: undefined,
               };
             }
@@ -1177,7 +1045,7 @@ const BatchImport: React.FC = () => {
     try {
       exportToExcel('投诉批量导入模板.xlsx', TEMPLATE_HEADERS, [TEMPLATE_EXAMPLE]);
       message.success('模板下载成功');
-    } catch (e) {
+    } catch {
       exportToCSV('投诉批量导入模板.csv', TEMPLATE_HEADERS, [TEMPLATE_EXAMPLE]);
       message.success('模板下载成功');
     }
@@ -1206,7 +1074,7 @@ const BatchImport: React.FC = () => {
     const ts = dayjs().format('YYYYMMDD_HHmmss');
     try {
       exportToExcel(`导入错误数据_${ts}.xlsx`, headers, rows);
-    } catch (e) {
+    } catch {
       exportToCSV(`导入错误数据_${ts}.csv`, headers, rows);
     }
     message.success(`已导出 ${errorRows.length} 条错误数据`);
@@ -1912,41 +1780,6 @@ const BatchImport: React.FC = () => {
       </Col>
     </Row>
   );
-
-  const ImportResultSection = () => {
-    if (!importResult) return null;
-
-    return (
-      <Alert
-        message={
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div className="flex items-center gap-4 flex-wrap">
-              <span>
-                导入完成：成功 <span className="font-semibold text-green-600">{importResult.success}</span> 条，
-                合并 <span className="font-semibold text-orange-500">{importResult.merged}</span> 条，
-                失败 <span className="font-semibold text-red-500">{importResult.failed}</span> 条
-              </span>
-            </div>
-            <Space>
-              <Button size="small" type="link" onClick={handleViewImported}>
-                查看导入详情
-              </Button>
-              <Button
-                size="small"
-                type="primary"
-                icon={<ExternalLink size={14} />}
-                onClick={handleGoToComplaints}
-              >
-                前往投诉列表
-              </Button>
-            </Space>
-          </div>
-        }
-        type={importResult.failed > 0 ? 'warning' : 'success'}
-        showIcon
-      />
-    );
-  };
 
   const StepProgressBar = () => (
     <Card className="mb-4">
