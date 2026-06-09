@@ -20,6 +20,7 @@ import {
 } from 'antd';
 import ReactECharts from 'echarts-for-react';
 import {
+  AlertTriangle,
   Trophy,
   Clock,
   ThumbsUp,
@@ -38,7 +39,7 @@ import dayjs from 'dayjs';
 import { useAppStore } from '@/store/appStore';
 import { departments, departmentTypes, statusMap, statusColorMap } from '@/data/dictionaries';
 import { StatusTag, SourceTag, SatisfactionTag } from '@/components/StatusTags';
-import type { Complaint } from '@/types';
+import type { Complaint, PerformanceDrillDownType } from '@/types';
 
 const { RangePicker } = DatePicker;
 
@@ -51,13 +52,29 @@ interface DeptPerformance {
   onTimeCount: number;
   onTimeRate: number;
   avgDuration: number;
+  overdueCount: number;
   returnCount: number;
   returnRate: number;
   satisfaction: number;
+  lowSatisfactionCount: number;
   urgeCount: number;
   avgUrgePerComplaint: number;
   statusDistribution: Record<string, number>;
 }
+
+const drillTypeLabelMap: Record<PerformanceDrillDownType, string> = {
+  overdue: '超期工单',
+  return: '退回工单',
+  urge: '催办工单',
+  low_satisfaction: '满意度偏低',
+};
+
+const rankMetricDrillMap: Partial<Record<string, PerformanceDrillDownType>> = {
+  overdueCount: 'overdue',
+  returnCount: 'return',
+  urgeCount: 'urge',
+  lowSatisfactionCount: 'low_satisfaction',
+};
 
 const DepartmentPerformance: React.FC = () => {
   const navigate = useNavigate();
@@ -92,9 +109,11 @@ const DepartmentPerformance: React.FC = () => {
         onTimeCount: 0,
         onTimeRate: 0,
         avgDuration: 0,
+        overdueCount: 0,
         returnCount: 0,
         returnRate: 0,
         satisfaction: 0,
+        lowSatisfactionCount: 0,
         urgeCount: 0,
         avgUrgePerComplaint: 0,
         statusDistribution: {},
@@ -109,6 +128,11 @@ const DepartmentPerformance: React.FC = () => {
       dept.urgeCount += c.urgeCount || 0;
       dept.statusDistribution[c.status] = (dept.statusDistribution[c.status] || 0) + 1;
 
+      const isOverdue = c.status === 'overdue' || (c.status !== 'completed' && dayjs().isAfter(dayjs(c.deadline)));
+      if (isOverdue) {
+        dept.overdueCount++;
+      }
+
       if (c.status === 'completed' && c.finishedAt) {
         dept.completedCount++;
         const duration = dayjs(c.finishedAt).diff(dayjs(c.createdAt), 'day', true);
@@ -122,6 +146,10 @@ const DepartmentPerformance: React.FC = () => {
         if (c.satisfaction) {
           dept.satisfaction += c.satisfaction;
         }
+      }
+
+      if (c.satisfaction && c.satisfaction < 3.5) {
+        dept.lowSatisfactionCount++;
       }
 
       const hasReturn = c.timelines.some((t) => t.type === 'return');
@@ -157,8 +185,14 @@ const DepartmentPerformance: React.FC = () => {
           return a.avgDuration - b.avgDuration;
         case 'returnRate':
           return b.returnRate - a.returnRate;
+        case 'returnCount':
+          return b.returnCount - a.returnCount;
         case 'satisfaction':
           return b.satisfaction - a.satisfaction;
+        case 'overdueCount':
+          return b.overdueCount - a.overdueCount;
+        case 'lowSatisfactionCount':
+          return b.lowSatisfactionCount - a.lowSatisfactionCount;
         case 'urgeCount':
           return b.urgeCount - a.urgeCount;
         default:
@@ -186,8 +220,18 @@ const DepartmentPerformance: React.FC = () => {
         : 0;
     const totalUrgeCount = deptPerformanceData.reduce((sum, d) => sum + d.urgeCount, 0);
     const totalReturnCount = deptPerformanceData.reduce((sum, d) => sum + d.returnCount, 0);
+    const totalOverdueCount = deptPerformanceData.reduce((sum, d) => sum + d.overdueCount, 0);
+    const totalLowSatisfactionCount = deptPerformanceData.reduce((sum, d) => sum + d.lowSatisfactionCount, 0);
 
-    return { totalDepts, avgOnTimeRate, avgSatisfaction, totalUrgeCount, totalReturnCount };
+    return {
+      totalDepts,
+      avgOnTimeRate,
+      avgSatisfaction,
+      totalUrgeCount,
+      totalReturnCount,
+      totalOverdueCount,
+      totalLowSatisfactionCount,
+    };
   }, [deptPerformanceData]);
 
   const trendData = useMemo(() => {
@@ -483,6 +527,43 @@ const DepartmentPerformance: React.FC = () => {
     setActiveDetailTab('overview');
   };
 
+  const handleDrillDown = (type: PerformanceDrillDownType, dept?: DeptPerformance) => {
+    const params = new URLSearchParams({
+      from: 'department-performance',
+      drillType: type,
+    });
+    if (dept) {
+      params.set('departmentId', dept.departmentId);
+      params.set('departmentName', dept.departmentName);
+    }
+    navigate(`/complaints?${params.toString()}`);
+  };
+
+  const renderDrillCard = (
+    type: PerformanceDrillDownType,
+    value: number,
+    suffix: string,
+    prefix: React.ReactNode,
+    color: string,
+    dept?: DeptPerformance
+  ) => (
+    <Tooltip title={`查看${dept ? dept.departmentName : '全部责任单位'}${drillTypeLabelMap[type]}`}>
+      <Card
+        className="shadow-sm cursor-pointer hover:border-blue-300 transition-colors"
+        onClick={() => handleDrillDown(type, dept)}
+      >
+        <Statistic
+          title={drillTypeLabelMap[type]}
+          value={value}
+          suffix={suffix}
+          prefix={prefix}
+          valueStyle={{ color }}
+        />
+        <div className="mt-2 text-xs text-blue-500">点击查看明细</div>
+      </Card>
+    </Tooltip>
+  );
+
   const deptComplaints = useMemo(() => {
     if (!selectedDept) return [];
     return filteredComplaints.filter((c) => c.departmentId === selectedDept.departmentId);
@@ -492,8 +573,11 @@ const DepartmentPerformance: React.FC = () => {
     { value: 'totalCount', label: '投诉量' },
     { value: 'onTimeRate', label: '按期办结率' },
     { value: 'avgDuration', label: '平均办理时长' },
+    { value: 'overdueCount', label: '超期数' },
+    { value: 'returnCount', label: '退回数' },
     { value: 'returnRate', label: '退回率' },
     { value: 'satisfaction', label: '满意度' },
+    { value: 'lowSatisfactionCount', label: '满意度偏低' },
     { value: 'urgeCount', label: '催办次数' },
   ];
 
@@ -512,6 +596,11 @@ const DepartmentPerformance: React.FC = () => {
         return value <= 5 ? 'text-green-600' : value <= 15 ? 'text-yellow-600' : 'text-red-600';
       case 'satisfaction':
         return value >= 4.5 ? 'text-green-600' : value >= 3.5 ? 'text-yellow-600' : 'text-red-600';
+      case 'overdueCount':
+      case 'returnCount':
+      case 'lowSatisfactionCount':
+      case 'urgeCount':
+        return value === 0 ? 'text-green-600' : value <= 3 ? 'text-yellow-600' : 'text-red-600';
       case 'avgDuration':
         return value <= 3 ? 'text-green-600' : value <= 5 ? 'text-yellow-600' : 'text-red-600';
       default:
@@ -542,9 +631,21 @@ const DepartmentPerformance: React.FC = () => {
         const max = Math.max(...sorted.map((d) => d.returnRate));
         return max > 0 ? (item.returnRate / max) * 100 : 0;
       }
+      case 'overdueCount': {
+        const max = Math.max(...sorted.map((d) => d.overdueCount));
+        return max > 0 ? (item.overdueCount / max) * 100 : 0;
+      }
+      case 'returnCount': {
+        const max = Math.max(...sorted.map((d) => d.returnCount));
+        return max > 0 ? (item.returnCount / max) * 100 : 0;
+      }
       case 'satisfaction': {
         const max = Math.max(...sorted.map((d) => d.satisfaction));
         return max > 0 ? (item.satisfaction / max) * 100 : 0;
+      }
+      case 'lowSatisfactionCount': {
+        const max = Math.max(...sorted.map((d) => d.lowSatisfactionCount));
+        return max > 0 ? (item.lowSatisfactionCount / max) * 100 : 0;
       }
       case 'urgeCount': {
         const max = Math.max(...sorted.map((d) => d.urgeCount));
@@ -563,10 +664,16 @@ const DepartmentPerformance: React.FC = () => {
         return `${item.onTimeRate}%`;
       case 'avgDuration':
         return `${item.avgDuration} 天`;
+      case 'overdueCount':
+        return `${item.overdueCount} 件`;
+      case 'returnCount':
+        return `${item.returnCount} 件`;
       case 'returnRate':
         return `${item.returnRate}%`;
       case 'satisfaction':
         return `${item.satisfaction} 分`;
+      case 'lowSatisfactionCount':
+        return `${item.lowSatisfactionCount} 件`;
       case 'urgeCount':
         return `${item.urgeCount} 次`;
       default:
@@ -752,36 +859,24 @@ const DepartmentPerformance: React.FC = () => {
               </Card>
             </Col>
             <Col xs={12} md={8}>
-              <Card className="shadow-sm">
-                <Statistic
-                  title="退回率"
-                  value={selectedDept.returnRate}
-                  suffix="%"
-                  prefix={<RotateCcw size={20} className="text-orange-500" />}
-                  valueStyle={{
-                    color:
-                      selectedDept.returnRate <= 5
-                        ? '#52c41a'
-                        : selectedDept.returnRate <= 15
-                        ? '#faad14'
-                        : '#f5222d',
-                  }}
-                />
-              </Card>
+              {renderDrillCard(
+                'overdue',
+                selectedDept.overdueCount,
+                '件',
+                <AlertTriangle size={20} className="text-red-500" />,
+                '#f5222d',
+                selectedDept
+              )}
             </Col>
             <Col xs={12} md={8}>
-              <Card className="shadow-sm">
-                <Statistic
-                  title="平均满意度"
-                  value={selectedDept.satisfaction}
-                  suffix="分"
-                  prefix={<Star size={20} className="text-yellow-500" />}
-                  valueStyle={{ color: '#faad14' }}
-                />
-                <div className="mt-1">
-                  <Rate disabled defaultValue={selectedDept.satisfaction} style={{ fontSize: 14 }} />
-                </div>
-              </Card>
+              {renderDrillCard(
+                'return',
+                selectedDept.returnCount,
+                '件',
+                <RotateCcw size={20} className="text-orange-500" />,
+                '#fa8c16',
+                selectedDept
+              )}
             </Col>
           </Row>
 
@@ -820,12 +915,46 @@ const DepartmentPerformance: React.FC = () => {
                   <div className="flex items-center">
                     <Bell size={16} className="text-gray-400 mr-2" />
                     <span className="text-gray-500 w-20">催办总次数：</span>
-                    <span className="font-semibold text-orange-600">{selectedDept.urgeCount} 次</span>
+                    <button
+                      type="button"
+                      className="font-semibold text-orange-600 hover:text-orange-700"
+                      onClick={() => handleDrillDown('urge', selectedDept)}
+                    >
+                      {selectedDept.urgeCount} 次
+                    </button>
                   </div>
                   <div className="flex items-center">
                     <RotateCcw size={16} className="text-gray-400 mr-2" />
                     <span className="text-gray-500 w-20">退回总件数：</span>
-                    <span className="font-semibold text-red-600">{selectedDept.returnCount} 件</span>
+                    <button
+                      type="button"
+                      className="font-semibold text-red-600 hover:text-red-700"
+                      onClick={() => handleDrillDown('return', selectedDept)}
+                    >
+                      {selectedDept.returnCount} 件
+                    </button>
+                  </div>
+                  <div className="flex items-center">
+                    <AlertTriangle size={16} className="text-gray-400 mr-2" />
+                    <span className="text-gray-500 w-20">超期工单：</span>
+                    <button
+                      type="button"
+                      className="font-semibold text-red-600 hover:text-red-700"
+                      onClick={() => handleDrillDown('overdue', selectedDept)}
+                    >
+                      {selectedDept.overdueCount} 件
+                    </button>
+                  </div>
+                  <div className="flex items-center">
+                    <Star size={16} className="text-gray-400 mr-2" />
+                    <span className="text-gray-500 w-20">满意偏低：</span>
+                    <button
+                      type="button"
+                      className="font-semibold text-orange-600 hover:text-orange-700"
+                      onClick={() => handleDrillDown('low_satisfaction', selectedDept)}
+                    >
+                      {selectedDept.lowSatisfactionCount} 件
+                    </button>
                   </div>
                   <div className="flex items-center">
                     <BarChart3 size={16} className="text-gray-400 mr-2" />
@@ -965,6 +1094,45 @@ const DepartmentPerformance: React.FC = () => {
       </Row>
 
       <Row gutter={[16, 16]}>
+        <Col xs={12} md={6}>
+          {renderDrillCard(
+            'overdue',
+            overallStats.totalOverdueCount,
+            '件',
+            <AlertTriangle size={20} className="text-red-500" />,
+            '#f5222d'
+          )}
+        </Col>
+        <Col xs={12} md={6}>
+          {renderDrillCard(
+            'return',
+            overallStats.totalReturnCount,
+            '件',
+            <RotateCcw size={20} className="text-orange-500" />,
+            '#fa8c16'
+          )}
+        </Col>
+        <Col xs={12} md={6}>
+          {renderDrillCard(
+            'urge',
+            overallStats.totalUrgeCount,
+            '次',
+            <Bell size={20} className="text-yellow-500" />,
+            '#faad14'
+          )}
+        </Col>
+        <Col xs={12} md={6}>
+          {renderDrillCard(
+            'low_satisfaction',
+            overallStats.totalLowSatisfactionCount,
+            '件',
+            <Star size={20} className="text-orange-500" />,
+            '#fa8c16'
+          )}
+        </Col>
+      </Row>
+
+      <Row gutter={[16, 16]}>
         <Col xs={24} lg={14}>
           <Card
             title={
@@ -985,43 +1153,57 @@ const DepartmentPerformance: React.FC = () => {
           >
             <List
               dataSource={sortedDeptData.filter((d) => d.totalCount > 0).slice(0, 10)}
-              renderItem={(item, index) => (
-                <List.Item
-                  className="px-0 py-3 cursor-pointer hover:bg-gray-50 rounded-lg px-2 -mx-2 transition-colors"
-                  onClick={() => handleDeptClick(item)}
-                >
-                  <div className="flex items-center w-full">
-                    <span
-                      className={`w-7 h-7 rounded-md flex items-center justify-center text-xs font-bold mr-3 flex-shrink-0 ${getRankBadgeStyle(index)}`}
-                    >
-                      {index + 1}
-                    </span>
-                    <span className="flex-1 text-gray-700 font-medium truncate mr-2">
-                      {item.departmentName}
-                    </span>
-                    <Tag className="mr-3 flex-shrink-0">{item.departmentType}</Tag>
-                    <div className="w-24 mr-4 flex-shrink-0">
-                      <Progress
-                        percent={getProgressPercent(item, rankMetric)}
-                        size="small"
-                        strokeColor={
-                          rankMetric === 'returnRate' || rankMetric === 'avgDuration'
-                            ? '#fa8c16'
-                            : rankMetric === 'urgeCount'
-                            ? '#faad14'
-                            : '#52c41a'
-                        }
-                        showInfo={false}
-                      />
+              renderItem={(item, index) => {
+                const drillType = rankMetricDrillMap[rankMetric];
+                const metricClassName = `font-semibold w-20 text-right flex-shrink-0 ${getMetricColor(rankMetric, item[rankMetric as keyof DeptPerformance] as number)}`;
+
+                return (
+                  <List.Item
+                    className="px-0 py-3 cursor-pointer hover:bg-gray-50 rounded-lg px-2 -mx-2 transition-colors"
+                    onClick={() => handleDeptClick(item)}
+                  >
+                    <div className="flex items-center w-full">
+                      <span
+                        className={`w-7 h-7 rounded-md flex items-center justify-center text-xs font-bold mr-3 flex-shrink-0 ${getRankBadgeStyle(index)}`}
+                      >
+                        {index + 1}
+                      </span>
+                      <span className="flex-1 text-gray-700 font-medium truncate mr-2">
+                        {item.departmentName}
+                      </span>
+                      <Tag className="mr-3 flex-shrink-0">{item.departmentType}</Tag>
+                      <div className="w-24 mr-4 flex-shrink-0">
+                        <Progress
+                          percent={getProgressPercent(item, rankMetric)}
+                          size="small"
+                          strokeColor={
+                            rankMetricDrillMap[rankMetric] || rankMetric === 'returnRate' || rankMetric === 'avgDuration'
+                              ? '#fa8c16'
+                              : '#52c41a'
+                          }
+                          showInfo={false}
+                        />
+                      </div>
+                      {drillType ? (
+                        <button
+                          type="button"
+                          className={`${metricClassName} hover:underline`}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            handleDrillDown(drillType, item);
+                          }}
+                        >
+                          {getMetricValue(item, rankMetric)}
+                        </button>
+                      ) : (
+                        <span className={metricClassName}>
+                          {getMetricValue(item, rankMetric)}
+                        </span>
+                      )}
                     </div>
-                    <span
-                      className={`font-semibold w-20 text-right flex-shrink-0 ${getMetricColor(rankMetric, item[rankMetric as keyof DeptPerformance] as number)}`}
-                    >
-                      {getMetricValue(item, rankMetric)}
-                    </span>
-                  </div>
-                </List.Item>
-              )}
+                  </List.Item>
+                );
+              }}
             />
             {sortedDeptData.filter((d) => d.totalCount > 0).length === 0 && (
               <Empty description="暂无数据" className="py-8" />

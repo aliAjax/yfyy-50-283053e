@@ -32,18 +32,85 @@ import {
   AlertTriangle,
   X,
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { useAppStore } from '@/store/appStore';
-import type { Complaint, ComplaintSource, ComplaintStatus, TimelineRecord, Department, AssignSource, DuplicateComplaintResult } from '@/types';
+import type {
+  AssignSource,
+  Complaint,
+  ComplaintSource,
+  ComplaintStatus,
+  Department,
+  DuplicateComplaintResult,
+  PerformanceDrillDownType,
+  TimelineRecord,
+} from '@/types';
 import { StatusTag, SourceTag, SatisfactionTag } from '@/components/StatusTags';
 import { categories, areas, departments, statusMap, sourceMap, assignSourceMap, statusColorMap } from '@/data/dictionaries';
 import type { DispatchMatchResult } from '@/lib/utils';
 import { getSimilarityColor, getSimilarityLabel, getSimilarityLevel } from '@/lib/utils';
 
+type ComplaintFilters = {
+  keyword: string;
+  source?: ComplaintSource;
+  status?: ComplaintStatus;
+  categoryId?: string;
+  areaId?: string;
+  departmentId?: string;
+  isRepeat?: boolean;
+  drillType?: PerformanceDrillDownType;
+};
+
+const defaultComplaintFilters: ComplaintFilters = {
+  keyword: '',
+  source: undefined,
+  status: undefined,
+  categoryId: undefined,
+  areaId: undefined,
+  departmentId: undefined,
+  isRepeat: undefined,
+  drillType: undefined,
+};
+
+const performanceDrillTypes: PerformanceDrillDownType[] = ['overdue', 'return', 'urge', 'low_satisfaction'];
+
+const drillTypeLabelMap: Record<PerformanceDrillDownType, string> = {
+  overdue: '超期工单',
+  return: '退回工单',
+  urge: '催办工单',
+  low_satisfaction: '满意度偏低',
+};
+
+const getPerformanceDrillType = (value: string | null): PerformanceDrillDownType | undefined => {
+  if (performanceDrillTypes.includes(value as PerformanceDrillDownType)) {
+    return value as PerformanceDrillDownType;
+  }
+  return undefined;
+};
+
+const isComplaintOverdue = (complaint: Complaint) =>
+  complaint.status === 'overdue' ||
+  (complaint.status !== 'completed' && dayjs().isAfter(dayjs(complaint.deadline)));
+
+const matchesPerformanceDrillFilter = (complaint: Complaint, drillType: PerformanceDrillDownType) => {
+  switch (drillType) {
+    case 'overdue':
+      return isComplaintOverdue(complaint);
+    case 'return':
+      return complaint.timelines.some((timeline) => timeline.type === 'return');
+    case 'urge':
+      return (complaint.urgeCount || 0) > 0;
+    case 'low_satisfaction':
+      return complaint.satisfaction !== undefined && complaint.satisfaction < 3.5;
+    default:
+      return true;
+  }
+};
+
 const ComplaintList: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { complaints, updateComplaint, addTimeline, addComplaint, matchDispatch, detectDuplicates, mergeComplaint } = useAppStore();
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [form] = Form.useForm();
@@ -61,15 +128,37 @@ const ComplaintList: React.FC = () => {
   const [pendingSubmitData, setPendingSubmitData] = useState<any>(null);
   const [checkingDuplicates, setCheckingDuplicates] = useState(false);
 
-  const [filters, setFilters] = useState({
-    keyword: '',
-    source: undefined as ComplaintSource | undefined,
-    status: undefined as ComplaintStatus | undefined,
-    categoryId: undefined,
-    areaId: undefined,
-    departmentId: undefined,
-    isRepeat: undefined as boolean | undefined,
-  });
+  const [filters, setFilters] = useState<ComplaintFilters>(defaultComplaintFilters);
+  const searchParamString = searchParams.toString();
+
+  useEffect(() => {
+    const params = new URLSearchParams(searchParamString);
+    if (params.get('from') !== 'department-performance') {
+      setFilters((prev) =>
+        prev.drillType || prev.departmentId
+          ? { ...prev, departmentId: undefined, drillType: undefined }
+          : prev
+      );
+      return;
+    }
+
+    setFilters((prev) => ({
+      ...prev,
+      departmentId: params.get('departmentId') || undefined,
+      drillType: getPerformanceDrillType(params.get('drillType')),
+    }));
+  }, [searchParamString]);
+
+  const performanceSource = filters.drillType
+    ? {
+        drillLabel: drillTypeLabelMap[filters.drillType],
+        departmentName: filters.departmentId
+          ? departments.find((d) => d.id === filters.departmentId)?.name ||
+            searchParams.get('departmentName') ||
+            filters.departmentId
+          : '全部责任单位',
+      }
+    : null;
 
   const filteredComplaints = complaints.filter((c) => {
     if (filters.keyword && !c.title.includes(filters.keyword) && !c.id.includes(filters.keyword)) {
@@ -80,6 +169,7 @@ const ComplaintList: React.FC = () => {
     if (filters.categoryId && !c.categoryId.startsWith(filters.categoryId)) return false;
     if (filters.areaId && c.areaId !== filters.areaId) return false;
     if (filters.departmentId && c.departmentId !== filters.departmentId) return false;
+    if (filters.drillType && !matchesPerformanceDrillFilter(c, filters.drillType)) return false;
     if (filters.isRepeat !== undefined && c.isRepeat !== filters.isRepeat) return false;
     return true;
   });
@@ -264,15 +354,17 @@ const ComplaintList: React.FC = () => {
   };
 
   const resetFilters = () => {
-    setFilters({
-      keyword: '',
-      source: undefined,
-      status: undefined,
-      categoryId: undefined,
-      areaId: undefined,
+    setFilters({ ...defaultComplaintFilters });
+    setSearchParams({});
+  };
+
+  const clearPerformanceSource = () => {
+    setFilters((prev) => ({
+      ...prev,
       departmentId: undefined,
-      isRepeat: undefined,
-    });
+      drillType: undefined,
+    }));
+    setSearchParams({});
   };
 
   const parentCategories = categories.filter((c) => !c.parentId);
@@ -519,6 +611,31 @@ const ComplaintList: React.FC = () => {
 
   return (
     <div className="space-y-4">
+      {performanceSource && (
+        <Alert
+          type="info"
+          showIcon
+          message="来自部门绩效页"
+          description={
+            <Space size={[8, 8]} wrap>
+              <Tag color="blue">责任单位：{performanceSource.departmentName}</Tag>
+              <Tag color="orange">筛选：{performanceSource.drillLabel}</Tag>
+              <span className="text-gray-500">当前列表已自动应用来源筛选条件</span>
+            </Space>
+          }
+          action={
+            <Space>
+              <Button size="small" onClick={() => navigate('/department-performance')}>
+                返回绩效页
+              </Button>
+              <Button size="small" onClick={clearPerformanceSource}>
+                清除来源
+              </Button>
+            </Space>
+          }
+        />
+      )}
+
       <div className="bg-white rounded-lg p-4 shadow-sm">
         <Row gutter={[16, 16]} align="middle">
           <Col span={6}>

@@ -28,6 +28,8 @@ export type TimelineType =
 
 export type AssignSource = 'auto' | 'manual';
 
+export type PerformanceDrillDownType = 'overdue' | 'return' | 'urge' | 'low_satisfaction';
+
 export interface Category {
   id: string;
   name: string;
