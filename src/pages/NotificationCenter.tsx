@@ -22,7 +22,6 @@ import {
   ExternalLink,
   Eye,
   ThumbsUp,
-  ThumbsDown,
   ChevronRight,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
