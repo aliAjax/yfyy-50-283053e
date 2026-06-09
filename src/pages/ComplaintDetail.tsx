@@ -45,11 +45,11 @@ import {
 import { useNavigate, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { useAppStore } from '@/store/appStore';
-import type { ExtensionRequest, KnowledgeEntry, Department, Complaint } from '@/types';
+import type { ExtensionRequest, KnowledgeEntry, Department } from '@/types';
 import { StatusTag, SourceTag, SatisfactionTag } from '@/components/StatusTags';
 import ComplaintTimeline from '@/components/ComplaintTimeline';
 import { departments, statusMap, statusColorMap } from '@/data/dictionaries';
-import { getSimilarityColor, getSimilarityLabel, getSimilarityLevel } from '@/lib/utils';
+import { getSimilarityColor, getSimilarityLevel } from '@/lib/utils';
 import type { DuplicateComplaintResult } from '@/types';
 
 interface KnowledgeCardProps {
@@ -422,165 +422,6 @@ ${today}`;
 
   const isOverdue = dayjs().isAfter(dayjs(complaint.deadline)) && complaint.status !== 'completed';
 
-  const getRiskWarnings = () => {
-    const warnings: { key: string; label: string; type: 'error' | 'warning' | 'info'; icon: React.ReactNode; description?: string }[] = [];
-    const now = dayjs();
-    const deadline = dayjs(complaint.deadline);
-    const diffHours = deadline.diff(now, 'hour');
-    const diffDays = deadline.diff(now, 'day');
-    const totalDays = deadline.diff(dayjs(complaint.createdAt), 'day');
-    const elapsedDays = now.diff(dayjs(complaint.createdAt), 'day');
-    const progressPercent = totalDays > 0 ? Math.min(100, Math.round((elapsedDays / totalDays) * 100)) : 0;
-
-    if (isOverdue) {
-      const overdueDays = Math.abs(diffDays) + 1;
-      warnings.push({
-        key: 'overdue',
-        label: `已超期${overdueDays}天`,
-        type: 'error',
-        icon: <AlertTriangle size={14} />,
-        description: '投诉已超过办理时限，需立即处理',
-      });
-    } else if (diffHours <= 24 && complaint.status !== 'completed') {
-      warnings.push({
-        key: 'urgent',
-        label: `临期（剩余${diffHours}小时）`,
-        type: 'error',
-        icon: <Clock size={14} />,
-        description: '办理时限不足24小时，请优先处理',
-      });
-    } else if (diffDays <= 3 && complaint.status !== 'completed') {
-      warnings.push({
-        key: 'approaching',
-        label: `即将到期（剩余${diffDays}天）`,
-        type: 'warning',
-        icon: <Clock size={14} />,
-        description: '办理时限临近，请注意进度',
-      });
-    }
-
-    if (complaint.urgeCount && complaint.urgeCount >= 3) {
-      warnings.push({
-        key: 'urge_high',
-        label: `高频催办（${complaint.urgeCount}次）`,
-        type: 'error',
-        icon: <Bell size={14} />,
-        description: '投诉已被多次催办，群众关注度高',
-      });
-    } else if (complaint.urgeCount && complaint.urgeCount >= 2) {
-      warnings.push({
-        key: 'urge_mid',
-        label: `已催办${complaint.urgeCount}次`,
-        type: 'warning',
-        icon: <Bell size={14} />,
-        description: '投诉已被催办，请注意办理进度',
-      });
-    }
-
-    if (complaint.isRepeat && repeatGroup.length >= 5) {
-      warnings.push({
-        key: 'repeat_high',
-        label: `重复投诉集中（${repeatGroup.length}件）`,
-        type: 'error',
-        icon: <GitMerge size={14} />,
-        description: '该问题已被多次投诉，需重点关注解决',
-      });
-    } else if (complaint.isRepeat && repeatGroup.length >= 3) {
-      warnings.push({
-        key: 'repeat_mid',
-        label: `重复投诉（${repeatGroup.length}件）`,
-        type: 'warning',
-        icon: <GitMerge size={14} />,
-        description: '存在同类重复投诉，需关注处理效果',
-      });
-    }
-
-    if (similarComplaints.length >= 5) {
-      warnings.push({
-        key: 'similar_high',
-        label: `相似投诉较多（${similarComplaints.length}件）`,
-        type: 'warning',
-        icon: <AlertTriangle size={14} />,
-        description: '存在多起相似投诉，建议合并处理',
-      });
-    } else if (similarComplaints.length >= 3) {
-      warnings.push({
-        key: 'similar_mid',
-        label: `相似投诉（${similarComplaints.length}件）`,
-        type: 'info',
-        icon: <AlertTriangle size={14} />,
-        description: '存在相似投诉，可参考处理方案',
-      });
-    }
-
-    if (complaint.status === 'returned') {
-      warnings.push({
-        key: 'returned',
-        label: '被退回重办',
-        type: 'warning',
-        icon: <RotateCcw size={14} />,
-        description: '投诉曾被退回，需注意办理质量',
-      });
-    }
-
-    if (progressPercent >= 80 && complaint.status !== 'completed' && !isOverdue) {
-      warnings.push({
-        key: 'progress_slow',
-        label: `办理进度${progressPercent}%`,
-        type: 'warning',
-        icon: <Clock size={14} />,
-        description: '时间已过八成，请加快办理进度',
-      });
-    }
-
-    return warnings;
-  };
-
-  const riskWarnings = getRiskWarnings();
-
-  const getOverallRiskLevel = (): 'high' | 'medium' | 'low' => {
-    const errorCount = riskWarnings.filter(w => w.type === 'error').length;
-    const warningCount = riskWarnings.filter(w => w.type === 'warning').length;
-    if (errorCount >= 2 || (errorCount >= 1 && warningCount >= 2)) {
-      return 'high';
-    }
-    if (errorCount >= 1 || warningCount >= 2) {
-      return 'medium';
-    }
-    if (warningCount >= 1 || riskWarnings.length > 0) {
-      return 'low';
-    }
-    return 'low';
-  };
-
-  const overallRiskLevel = getOverallRiskLevel();
-
-  const getTagColor = (type: string) => {
-    switch (type) {
-      case 'error': return 'red';
-      case 'warning': return 'orange';
-      case 'info': return 'blue';
-      default: return 'default';
-    }
-  };
-
-  const getAlertType = (level: string) => {
-    switch (level) {
-      case 'high': return 'error';
-      case 'medium': return 'warning';
-      case 'low': return 'info';
-      default: return 'info';
-    }
-  };
-
-  const getRiskTitle = (level: string) => {
-    switch (level) {
-      case 'high': return '高风险工单，请谨慎操作';
-      case 'medium': return '中风险工单，请注意相关提示';
-      case 'low': return '低风险工单';
-      default: return '办理风险提示';
-    }
-  };
 
   return (
     <div className="space-y-4">
@@ -606,41 +447,6 @@ ${today}`;
           )}
         </div>
         <div className="flex flex-col items-end gap-3">
-          {riskWarnings.length > 0 && (
-            <Alert
-              type={getAlertType(overallRiskLevel) as any}
-              showIcon
-              icon={<AlertTriangle size={16} />}
-              message={
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-medium">{getRiskTitle(overallRiskLevel)}</span>
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    {riskWarnings.map((warning) => (
-                      <Tag
-                        key={warning.key}
-                        color={getTagColor(warning.type)}
-                        icon={warning.icon}
-                        className="m-0 text-xs"
-                      >
-                        {warning.label}
-                      </Tag>
-                    ))}
-                  </div>
-                </div>
-              }
-              description={
-                <div className="text-xs mt-1 space-y-0.5">
-                  {riskWarnings.slice(0, 3).map((warning) => (
-                    <div key={warning.key} className="flex items-start gap-1.5">
-                      <span className="text-gray-500">•</span>
-                      <span>{warning.description}</span>
-                    </div>
-                  ))}
-                </div>
-              }
-              className="text-left"
-            />
-          )}
           <Space>
             <Button
               icon={<GitMerge size={14} />}
@@ -935,7 +741,6 @@ ${today}`;
                 renderItem={(item: DuplicateComplaintResult) => {
                   const level = getSimilarityLevel(item.similarity);
                   const color = getSimilarityColor(item.similarity);
-                  const label = getSimilarityLabel(item.similarity);
                   return (
                     <List.Item
                       key={item.complaint.id}
@@ -1009,35 +814,6 @@ ${today}`;
         footer={null}
         width={600}
       >
-        {riskWarnings.length > 0 && (
-          <Alert
-            type={getAlertType(overallRiskLevel) as any}
-            showIcon
-            icon={<AlertTriangle size={14} />}
-            message={
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-sm font-medium">办理风险提示</span>
-                {riskWarnings.slice(0, 3).map((warning) => (
-                  <Tag key={warning.key} color={getTagColor(warning.type)} icon={warning.icon} className="m-0 text-xs">
-                    {warning.label}
-                  </Tag>
-                ))}
-              </div>
-            }
-            description={
-              <div className="text-xs space-y-0.5 mt-1">
-                {riskWarnings.slice(0, 2).map((warning) => (
-                  <div key={warning.key} className="flex items-start gap-1.5">
-                    <span className="text-gray-500">•</span>
-                    <span>{warning.description}</span>
-                  </div>
-                ))}
-                <div className="text-gray-500 mt-1">转办前请评估上述风险，确保转办后能及时处理</div>
-              </div>
-            }
-            className="mb-4"
-          />
-        )}
         <Form form={form} layout="vertical" onFinish={handleTransfer}>
           <Form.Item
             label="转至单位"
@@ -1135,35 +911,6 @@ ${today}`;
         footer={null}
         width={520}
       >
-        {riskWarnings.length > 0 && (
-          <Alert
-            type={getAlertType(overallRiskLevel) as any}
-            showIcon
-            icon={<AlertTriangle size={14} />}
-            message={
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-sm font-medium">办理风险提示</span>
-                {riskWarnings.slice(0, 3).map((warning) => (
-                  <Tag key={warning.key} color={getTagColor(warning.type)} icon={warning.icon} className="m-0 text-xs">
-                    {warning.label}
-                  </Tag>
-                ))}
-              </div>
-            }
-            description={
-              <div className="text-xs space-y-0.5 mt-1">
-                {riskWarnings.slice(0, 2).map((warning) => (
-                  <div key={warning.key} className="flex items-start gap-1.5">
-                    <span className="text-gray-500">•</span>
-                    <span>{warning.description}</span>
-                  </div>
-                ))}
-                <div className="text-gray-500 mt-1">退回将延长办理周期，请评估后谨慎操作</div>
-              </div>
-            }
-            className="mb-4"
-          />
-        )}
         <Form form={form} layout="vertical" onFinish={handleReturn}>
           <Form.Item
             label="退回原因"
@@ -1190,35 +937,6 @@ ${today}`;
         footer={null}
         width={520}
       >
-        {riskWarnings.length > 0 && (
-          <Alert
-            type={getAlertType(overallRiskLevel) as any}
-            showIcon
-            icon={<AlertTriangle size={14} />}
-            message={
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-sm font-medium">办理风险提示</span>
-                {riskWarnings.slice(0, 3).map((warning) => (
-                  <Tag key={warning.key} color={getTagColor(warning.type)} icon={warning.icon} className="m-0 text-xs">
-                    {warning.label}
-                  </Tag>
-                ))}
-              </div>
-            }
-            description={
-              <div className="text-xs space-y-0.5 mt-1">
-                {riskWarnings.slice(0, 2).map((warning) => (
-                  <div key={warning.key} className="flex items-start gap-1.5">
-                    <span className="text-gray-500">•</span>
-                    <span>{warning.description}</span>
-                  </div>
-                ))}
-                <div className="text-gray-500 mt-1">延期将影响办理时效，请严格审核延期理由</div>
-              </div>
-            }
-            className="mb-4"
-          />
-        )}
         <Form form={form} layout="vertical" onFinish={handleDelay}>
           <Form.Item
             label="延长期限"
@@ -1258,35 +976,6 @@ ${today}`;
         footer={null}
         width={520}
       >
-        {riskWarnings.length > 0 && (
-          <Alert
-            type={getAlertType(overallRiskLevel) as any}
-            showIcon
-            icon={<AlertTriangle size={14} />}
-            message={
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-sm font-medium">办理风险提示</span>
-                {riskWarnings.slice(0, 3).map((warning) => (
-                  <Tag key={warning.key} color={getTagColor(warning.type)} icon={warning.icon} className="m-0 text-xs">
-                    {warning.label}
-                  </Tag>
-                ))}
-              </div>
-            }
-            description={
-              <div className="text-xs space-y-0.5 mt-1">
-                {riskWarnings.slice(0, 2).map((warning) => (
-                  <div key={warning.key} className="flex items-start gap-1.5">
-                    <span className="text-gray-500">•</span>
-                    <span>{warning.description}</span>
-                  </div>
-                ))}
-                <div className="text-gray-500 mt-1">催办将增加责任单位压力，请合理使用</div>
-              </div>
-            }
-            className="mb-4"
-          />
-        )}
         <Form form={form} layout="vertical" onFinish={handleUrge}>
           <Form.Item label="催办内容" name="content">
             <Input.TextArea rows={3} placeholder="请输入催办内容" defaultValue="请加快办理进度，确保按时办结" />
@@ -1309,35 +998,6 @@ ${today}`;
         footer={null}
         width={520}
       >
-        {riskWarnings.length > 0 && (
-          <Alert
-            type={getAlertType(overallRiskLevel) as any}
-            showIcon
-            icon={<AlertTriangle size={14} />}
-            message={
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-sm font-medium">办理风险提示</span>
-                {riskWarnings.slice(0, 3).map((warning) => (
-                  <Tag key={warning.key} color={getTagColor(warning.type)} icon={warning.icon} className="m-0 text-xs">
-                    {warning.label}
-                  </Tag>
-                ))}
-              </div>
-            }
-            description={
-              <div className="text-xs space-y-0.5 mt-1">
-                {riskWarnings.slice(0, 2).map((warning) => (
-                  <div key={warning.key} className="flex items-start gap-1.5">
-                    <span className="text-gray-500">•</span>
-                    <span>{warning.description}</span>
-                  </div>
-                ))}
-                <div className="text-gray-500 mt-1">审核前请综合评估上述风险因素</div>
-              </div>
-            }
-            className="mb-4"
-          />
-        )}
         <Form form={form} layout="vertical" onFinish={handleReview}>
           <Form.Item
             label="审核结果"
@@ -1383,35 +1043,6 @@ ${today}`;
         width={600}
         destroyOnClose
       >
-        {riskWarnings.length > 0 && (
-          <Alert
-            type={getAlertType(overallRiskLevel) as any}
-            showIcon
-            icon={<AlertTriangle size={14} />}
-            message={
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-sm font-medium">办理风险提示</span>
-                {riskWarnings.slice(0, 3).map((warning) => (
-                  <Tag key={warning.key} color={getTagColor(warning.type)} icon={warning.icon} className="m-0 text-xs">
-                    {warning.label}
-                  </Tag>
-                ))}
-              </div>
-            }
-            description={
-              <div className="text-xs space-y-0.5 mt-1">
-                {riskWarnings.slice(0, 2).map((warning) => (
-                  <div key={warning.key} className="flex items-start gap-1.5">
-                    <span className="text-gray-500">•</span>
-                    <span>{warning.description}</span>
-                  </div>
-                ))}
-                <div className="text-gray-500 mt-1">提交前请确保办理结果详实、措施到位</div>
-              </div>
-            }
-            className="mb-4"
-          />
-        )}
         {draftInfo && (
           <Alert
             type="info"
