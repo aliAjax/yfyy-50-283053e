@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   Table,
   Button,
@@ -14,6 +14,8 @@ import {
   Tag,
   Popconfirm,
   InputNumber,
+  Divider,
+  Empty,
 } from 'antd';
 import {
   Plus,
@@ -22,11 +24,14 @@ import {
   Trash2,
   Settings,
   Zap,
+  Eye,
+  Trophy,
 } from 'lucide-react';
 import type { ColumnsType } from 'antd/es/table';
 import { useAppStore } from '@/store/appStore';
 import type { DispatchRule } from '@/types';
 import { categories, areas, departments } from '@/data/dictionaries';
+import { getAllMatchingRules, type RuleHitPreview } from '@/lib/utils';
 
 const DispatchRules: React.FC = () => {
   const { dispatchRules, addDispatchRule, updateDispatchRule, deleteDispatchRule, toggleDispatchRuleStatus } = useAppStore();
@@ -40,6 +45,77 @@ const DispatchRules: React.FC = () => {
     departmentId: undefined as string | undefined,
     enabled: undefined as boolean | undefined,
   });
+
+  const previewCategoryId = Form.useWatch('categoryId', form);
+  const previewAreaId = Form.useWatch('areaId', form);
+  const previewPriority = Form.useWatch('priority', form);
+  const previewName = Form.useWatch('name', form);
+  const previewDepartmentId = Form.useWatch('departmentId', form);
+  const previewEnabled = Form.useWatch('enabled', form);
+
+  const { previewHits, currentRuleRank } = useMemo(() => {
+    if (!previewCategoryId || !previewAreaId) {
+      return { previewHits: [] as RuleHitPreview[], currentRuleRank: null as null | { rank: number; level: string; levelColor: string } };
+    }
+
+    const department = departments.find((d) => d.id === previewDepartmentId);
+    const category = categories.find((c) => c.id === previewCategoryId);
+    const parentCategory = categories.find((c) => c.id === category?.parentId);
+    const categoryName = parentCategory
+      ? `${parentCategory.name} - ${category?.name}`
+      : category?.name || '';
+    const area = areas.find((a) => a.id === previewAreaId);
+
+    const canBuildCurrentRule =
+      previewPriority !== undefined && previewDepartmentId && department;
+
+    const currentRuleData = canBuildCurrentRule
+      ? {
+          id: editingRule?.id || '__NEW_RULE__',
+          categoryId: previewCategoryId,
+          areaId: previewAreaId,
+          departmentId: previewDepartmentId,
+          departmentName: department.name,
+          priority: previewPriority as number,
+          name: previewName || '(未命名规则)',
+          enabled: previewEnabled !== false,
+          categoryName,
+          areaName: area?.name || '',
+        }
+      : undefined;
+
+    const hits = getAllMatchingRules(previewCategoryId, previewAreaId, dispatchRules, {
+      excludeRuleId: editingRule?.id,
+      currentRule: currentRuleData,
+    });
+
+    let currentRank: null | { rank: number; level: string; levelColor: string } = null;
+    const currentIndex = hits.findIndex((h) => h.isCurrent);
+    if (currentIndex >= 0) {
+      const hit = hits[currentIndex];
+      const colorMap: Record<string, string> = {
+        exact: 'red',
+        category_match: 'orange',
+        area_match: 'blue',
+      };
+      currentRank = {
+        rank: currentIndex + 1,
+        level: hit.matchLevelText,
+        levelColor: currentIndex === 0 ? 'green' : colorMap[hit.matchLevel] || 'default',
+      };
+    }
+
+    return { previewHits: hits, currentRuleRank: currentRank };
+  }, [
+    previewCategoryId,
+    previewAreaId,
+    previewPriority,
+    previewName,
+    previewDepartmentId,
+    previewEnabled,
+    dispatchRules,
+    editingRule,
+  ]);
 
   const filteredRules = dispatchRules.filter((r) => {
     if (filters.keyword && !r.name.includes(filters.keyword) && !r.id.includes(filters.keyword)) {
@@ -358,7 +434,7 @@ const DispatchRules: React.FC = () => {
           form.resetFields();
         }}
         footer={null}
-        width={600}
+        width={760}
         destroyOnClose
       >
         <Form form={form} layout="vertical" onFinish={handleSubmit}>
@@ -408,6 +484,203 @@ const DispatchRules: React.FC = () => {
               </Form.Item>
             </Col>
           </Row>
+
+          <div className="mb-4 rounded-lg border border-gray-200 bg-gray-50 p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Eye size={16} className="text-blue-500" />
+                <span className="font-medium text-gray-800">规则命中预览</span>
+                <span className="text-xs text-gray-400">
+                  根据当前选择的分类和区域，实时查看命中的规则
+                </span>
+              </div>
+              {currentRuleRank && (
+                <div className="flex items-center gap-2 rounded-md bg-white px-3 py-1.5 shadow-sm">
+                  <Trophy
+                    size={14}
+                    className={
+                      currentRuleRank.rank === 1
+                        ? 'text-yellow-500'
+                        : 'text-gray-400'
+                    }
+                  />
+                  <span className="text-xs text-gray-600">
+                    当前规则排名：
+                  </span>
+                  <Tag
+                    color={currentRuleRank.levelColor}
+                    style={{ margin: 0 }}
+                  >
+                    第 {currentRuleRank.rank} 位 · {currentRuleRank.level}
+                  </Tag>
+                </div>
+              )}
+            </div>
+
+            {!previewCategoryId || !previewAreaId ? (
+              <div className="py-6">
+                <Empty
+                  description="请先选择事项分类和所属区域"
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                />
+              </div>
+            ) : previewHits.length === 0 ? (
+              <div className="py-6">
+                <Empty
+                  description={
+                    <div>
+                      <div className="text-gray-600 mb-1">
+                        暂无命中的规则
+                      </div>
+                      <div className="text-xs text-gray-400">
+                        当前分类和区域组合下，还没有启用的规则
+                        {previewPriority === undefined || !previewDepartmentId
+                          ? '，请继续设置优先级和责任单位以预览当前规则'
+                          : ''}
+                      </div>
+                    </div>
+                  }
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                />
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="grid grid-cols-12 gap-2 px-2 py-1.5 text-xs font-medium text-gray-500">
+                  <div className="col-span-1">排序</div>
+                  <div className="col-span-2">命中层级</div>
+                  <div className="col-span-3">规则名称</div>
+                  <div className="col-span-3">责任单位</div>
+                  <div className="col-span-2">优先级</div>
+                  <div className="col-span-1 text-right">状态</div>
+                </div>
+                {previewHits.map((hit: RuleHitPreview, index: number) => (
+                  <div
+                    key={hit.rule.id}
+                    className={`grid grid-cols-12 gap-2 items-center rounded-md px-2 py-2.5 text-sm transition-colors ${
+                      hit.isCurrent
+                        ? 'bg-green-50 border-2 border-green-300 shadow-sm'
+                        : index === 0
+                        ? 'bg-blue-50 border border-blue-200'
+                        : 'bg-white hover:bg-gray-50 border border-gray-100'
+                    }`}
+                  >
+                    <div className="col-span-1">
+                      {index === 0 ? (
+                        <Tag color="gold" style={{ margin: 0 }}>
+                          #1
+                        </Tag>
+                      ) : (
+                        <span className="text-gray-400 font-mono">
+                          #{index + 1}
+                        </span>
+                      )}
+                    </div>
+                    <div className="col-span-2 flex flex-wrap gap-1">
+                      <Tag
+                        color={
+                          hit.matchLevel === 'exact'
+                            ? 'red'
+                            : hit.matchLevel === 'category_match'
+                            ? 'orange'
+                            : 'blue'
+                        }
+                        style={{ margin: 0 }}
+                      >
+                        {hit.matchLevelText}
+                      </Tag>
+                      {hit.isCurrent && (
+                        <Tag color="green" style={{ margin: 0 }}>
+                          当前规则
+                        </Tag>
+                      )}
+                    </div>
+                    <div className="col-span-3">
+                      <div
+                        className={`truncate ${hit.isCurrent ? 'font-semibold text-green-800' : 'text-gray-800'}`}
+                        title={hit.rule.name}
+                      >
+                        {hit.rule.name}
+                      </div>
+                      <div
+                        className="text-xs text-gray-400 font-mono truncate"
+                        title={hit.rule.id}
+                      >
+                        {hit.rule.id.startsWith('__') ? '(新规则)' : hit.rule.id}
+                      </div>
+                    </div>
+                    <div className="col-span-3">
+                      <span
+                        className={`truncate ${hit.isCurrent ? 'text-green-700' : 'text-gray-700'}`}
+                        title={hit.rule.departmentName}
+                      >
+                        {hit.rule.departmentName}
+                      </span>
+                    </div>
+                    <div className="col-span-2">
+                      <Tag
+                        color={
+                          hit.rule.priority >= 90
+                            ? 'red'
+                            : hit.rule.priority >= 70
+                            ? 'orange'
+                            : 'blue'
+                        }
+                        style={{ margin: 0 }}
+                      >
+                        {hit.rule.priority}
+                      </Tag>
+                    </div>
+                    <div className="col-span-1 text-right">
+                      <Tag
+                        color={hit.rule.enabled ? 'green' : 'default'}
+                        style={{ margin: 0 }}
+                      >
+                        {hit.rule.enabled ? '启用' : '停用'}
+                      </Tag>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {!currentRuleRank && previewCategoryId && previewAreaId && (
+              <div className="mt-3 flex items-start gap-2 rounded-md bg-amber-50 p-2.5 text-xs text-amber-700 border border-amber-200">
+                <Zap size={14} className="text-amber-500 mt-0.5 flex-shrink-0" />
+                <div>
+                  请设置<strong>优先级</strong>和<strong>责任单位</strong>
+                  ，即可查看当前规则在命中列表中的排名。
+                </div>
+              </div>
+            )}
+
+            {previewHits.length > 0 && (
+              <div className="mt-3 flex items-start gap-2 rounded-md bg-blue-50/50 p-2.5 text-xs text-gray-600">
+                <Zap size={14} className="text-blue-500 mt-0.5 flex-shrink-0" />
+                <div>
+                  <strong className="text-gray-700">匹配说明：</strong>
+                  系统优先匹配
+                  <Tag color="red" style={{ margin: '0 2px' }}>
+                    精确匹配
+                  </Tag>
+                  层级，其次是
+                  <Tag color="orange" style={{ margin: '0 2px' }}>
+                    分类匹配
+                  </Tag>
+                  ，最后是
+                  <Tag color="blue" style={{ margin: '0 2px' }}>
+                    区域匹配
+                  </Tag>
+                  ；同一层级内按优先级从高到低排序，排名 #1 的规则将生效。
+                  <Tag color="green" style={{ margin: '0 2px' }}>
+                    当前规则
+                  </Tag>
+                  为您正在编辑的规则。
+                </div>
+              </div>
+            )}
+          </div>
+
+          <Divider style={{ margin: '12px 0' }} />
 
           <Form.Item
             label="责任单位"

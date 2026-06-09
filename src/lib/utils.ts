@@ -67,6 +67,128 @@ export const matchDispatchRule = (
   };
 };
 
+export interface RuleHitPreview {
+  rule: DispatchRule;
+  matchLevel: 'exact' | 'category_match' | 'area_match';
+  matchLevelText: string;
+  matchLevelOrder: number;
+  isCurrent?: boolean;
+}
+
+export const getRuleMatchLevel = (
+  ruleCategoryId: string,
+  ruleAreaId: string,
+  targetCategoryId: string,
+  targetAreaId: string
+): Omit<RuleHitPreview, 'rule' | 'isCurrent'> | null => {
+  if (ruleAreaId !== targetAreaId) return null;
+
+  const targetParentCat = categories.find((c) => c.id === targetCategoryId)?.parentId;
+
+  if (ruleCategoryId === targetCategoryId && ruleAreaId === targetAreaId) {
+    return {
+      matchLevel: 'exact',
+      matchLevelText: '精确匹配',
+      matchLevelOrder: 1,
+    };
+  }
+
+  const ruleParentCat = categories.find((c) => c.id === ruleCategoryId)?.parentId;
+  if (ruleCategoryId === targetCategoryId || ruleParentCat === targetParentCat) {
+    return {
+      matchLevel: 'category_match',
+      matchLevelText: '分类匹配',
+      matchLevelOrder: 2,
+    };
+  }
+
+  return {
+    matchLevel: 'area_match',
+    matchLevelText: '区域匹配',
+    matchLevelOrder: 3,
+  };
+};
+
+export const getAllMatchingRules = (
+  categoryId: string,
+  areaId: string,
+  rules: DispatchRule[],
+  options?: {
+    excludeRuleId?: string;
+    currentRule?: {
+      id: string;
+      categoryId: string;
+      areaId: string;
+      departmentId: string;
+      departmentName: string;
+      priority: number;
+      name: string;
+      enabled: boolean;
+      categoryName?: string;
+      areaName?: string;
+    };
+  }
+): RuleHitPreview[] => {
+  const excludeRuleId = options?.excludeRuleId;
+  const currentRule = options?.currentRule;
+
+  const enabledRules = rules.filter((r) => r.enabled && r.id !== excludeRuleId);
+
+  const hits: RuleHitPreview[] = [];
+
+  enabledRules.forEach((r) => {
+    const levelInfo = getRuleMatchLevel(r.categoryId, r.areaId, categoryId, areaId);
+    if (levelInfo) {
+      hits.push({
+        rule: r,
+        ...levelInfo,
+      });
+    }
+  });
+
+  if (currentRule) {
+    const levelInfo = getRuleMatchLevel(
+      currentRule.categoryId,
+      currentRule.areaId,
+      categoryId,
+      areaId
+    );
+    if (levelInfo) {
+      const simulatedRule: DispatchRule = {
+        id: currentRule.id,
+        name: currentRule.name,
+        categoryId: currentRule.categoryId,
+        categoryName: currentRule.categoryName || '',
+        areaId: currentRule.areaId,
+        areaName: currentRule.areaName || '',
+        departmentId: currentRule.departmentId,
+        departmentName: currentRule.departmentName,
+        priority: currentRule.priority,
+        enabled: currentRule.enabled,
+        createdAt: '',
+        updatedAt: '',
+      };
+      hits.push({
+        rule: simulatedRule,
+        ...levelInfo,
+        isCurrent: true,
+      });
+    }
+  }
+
+  hits.sort((a, b) => {
+    if (a.matchLevelOrder !== b.matchLevelOrder) {
+      return a.matchLevelOrder - b.matchLevelOrder;
+    }
+    if (b.rule.priority !== a.rule.priority) {
+      return b.rule.priority - a.rule.priority;
+    }
+    return a.isCurrent ? -1 : b.isCurrent ? 1 : 0;
+  });
+
+  return hits;
+};
+
 const levenshteinDistance = (str1: string, str2: string): number => {
   const m = str1.length;
   const n = str2.length;
