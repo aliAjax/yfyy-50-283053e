@@ -255,6 +255,30 @@ export interface SimulationState {
 
 export type RiskLevel = 'high' | 'medium' | 'low';
 
+export type DrillDownType = 'overdue' | 'return' | 'urge' | 'low_satisfaction';
+
+export interface ComplaintListFilters {
+  keyword: string;
+  source?: ComplaintSource;
+  status?: ComplaintStatus;
+  categoryId?: string;
+  areaId?: string;
+  departmentId?: string;
+  isRepeat?: boolean;
+  drillDownType?: DrillDownType;
+  satisfactionLow?: boolean;
+  hasReturn?: boolean;
+  hasUrge?: boolean;
+  isOverdue?: boolean;
+}
+
+export interface FilterView {
+  id: string;
+  name: string;
+  filters: ComplaintListFilters;
+  createdAt: string;
+}
+
 export type RiskRuleType =
   | 'expiring'
   | 'overdue'
@@ -310,23 +334,6 @@ export interface WarningAlert {
   handler?: string;
   remark?: string;
   detail?: Record<string, string | number | boolean | null | undefined>;
-}
-
-export interface ComplaintListFilters {
-  keyword: string;
-  source?: ComplaintSource;
-  status?: ComplaintStatus;
-  categoryId?: string;
-  areaId?: string;
-  departmentId?: string;
-  isRepeat?: boolean;
-}
-
-export interface FilterView {
-  id: string;
-  name: string;
-  filters: ComplaintListFilters;
-  createdAt: string;
 }
 
 export type KnowledgeStatus = 'active' | 'disabled';

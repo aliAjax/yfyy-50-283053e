@@ -32,13 +32,15 @@ import {
   Building2,
   Eye,
   PieChart,
+  AlertTriangle,
+  Frown,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { useAppStore } from '@/store/appStore';
 import { departments, departmentTypes, statusMap, statusColorMap } from '@/data/dictionaries';
 import { StatusTag, SourceTag, SatisfactionTag } from '@/components/StatusTags';
-import type { Complaint } from '@/types';
+import type { Complaint, DrillDownType } from '@/types';
 
 const { RangePicker } = DatePicker;
 
@@ -56,6 +58,8 @@ interface DeptPerformance {
   satisfaction: number;
   urgeCount: number;
   avgUrgePerComplaint: number;
+  overdueCount: number;
+  lowSatisfactionCount: number;
   statusDistribution: Record<string, number>;
 }
 
@@ -97,6 +101,8 @@ const DepartmentPerformance: React.FC = () => {
         satisfaction: 0,
         urgeCount: 0,
         avgUrgePerComplaint: 0,
+        overdueCount: 0,
+        lowSatisfactionCount: 0,
         statusDistribution: {},
       });
     });
@@ -108,6 +114,11 @@ const DepartmentPerformance: React.FC = () => {
       dept.totalCount++;
       dept.urgeCount += c.urgeCount || 0;
       dept.statusDistribution[c.status] = (dept.statusDistribution[c.status] || 0) + 1;
+
+      const isOverdue = c.status !== 'completed' && dayjs().isAfter(dayjs(c.deadline));
+      if (isOverdue) {
+        dept.overdueCount++;
+      }
 
       if (c.status === 'completed' && c.finishedAt) {
         dept.completedCount++;
@@ -121,6 +132,9 @@ const DepartmentPerformance: React.FC = () => {
 
         if (c.satisfaction) {
           dept.satisfaction += c.satisfaction;
+          if (c.satisfaction < 3.5) {
+            dept.lowSatisfactionCount++;
+          }
         }
       }
 
@@ -161,6 +175,10 @@ const DepartmentPerformance: React.FC = () => {
           return b.satisfaction - a.satisfaction;
         case 'urgeCount':
           return b.urgeCount - a.urgeCount;
+        case 'overdueCount':
+          return b.overdueCount - a.overdueCount;
+        case 'lowSatisfactionCount':
+          return b.lowSatisfactionCount - a.lowSatisfactionCount;
         default:
           return b.totalCount - a.totalCount;
       }
@@ -186,8 +204,10 @@ const DepartmentPerformance: React.FC = () => {
         : 0;
     const totalUrgeCount = deptPerformanceData.reduce((sum, d) => sum + d.urgeCount, 0);
     const totalReturnCount = deptPerformanceData.reduce((sum, d) => sum + d.returnCount, 0);
+    const totalOverdueCount = deptPerformanceData.reduce((sum, d) => sum + d.overdueCount, 0);
+    const totalLowSatisfactionCount = deptPerformanceData.reduce((sum, d) => sum + d.lowSatisfactionCount, 0);
 
-    return { totalDepts, avgOnTimeRate, avgSatisfaction, totalUrgeCount, totalReturnCount };
+    return { totalDepts, avgOnTimeRate, avgSatisfaction, totalUrgeCount, totalReturnCount, totalOverdueCount, totalLowSatisfactionCount };
   }, [deptPerformanceData]);
 
   const trendData = useMemo(() => {
@@ -483,6 +503,34 @@ const DepartmentPerformance: React.FC = () => {
     setActiveDetailTab('overview');
   };
 
+  const handleDrillDown = (deptId: string, drillType: DrillDownType) => {
+    const params = new URLSearchParams();
+    params.set('departmentId', deptId);
+    params.set('drillDownType', drillType);
+    switch (drillType) {
+      case 'overdue':
+        params.set('isOverdue', 'true');
+        break;
+      case 'return':
+        params.set('hasReturn', 'true');
+        break;
+      case 'urge':
+        params.set('hasUrge', 'true');
+        break;
+      case 'low_satisfaction':
+        params.set('satisfactionLow', 'true');
+        break;
+    }
+    navigate(`/complaints?${params.toString()}`);
+  };
+
+  const drillDownLabelMap: Record<DrillDownType, string> = {
+    overdue: '超期工单',
+    return: '退回工单',
+    urge: '催办工单',
+    low_satisfaction: '满意度偏低工单',
+  };
+
   const deptComplaints = useMemo(() => {
     if (!selectedDept) return [];
     return filteredComplaints.filter((c) => c.departmentId === selectedDept.departmentId);
@@ -495,6 +543,8 @@ const DepartmentPerformance: React.FC = () => {
     { value: 'returnRate', label: '退回率' },
     { value: 'satisfaction', label: '满意度' },
     { value: 'urgeCount', label: '催办次数' },
+    { value: 'overdueCount', label: '超期工单数' },
+    { value: 'lowSatisfactionCount', label: '满意度偏低工单数' },
   ];
 
   const getRankBadgeStyle = (index: number) => {
@@ -514,6 +564,11 @@ const DepartmentPerformance: React.FC = () => {
         return value >= 4.5 ? 'text-green-600' : value >= 3.5 ? 'text-yellow-600' : 'text-red-600';
       case 'avgDuration':
         return value <= 3 ? 'text-green-600' : value <= 5 ? 'text-yellow-600' : 'text-red-600';
+      case 'overdueCount':
+      case 'lowSatisfactionCount':
+      case 'urgeCount':
+      case 'returnCount':
+        return value === 0 ? 'text-green-600' : value <= 3 ? 'text-yellow-600' : 'text-red-600';
       default:
         return 'text-blue-600';
     }
@@ -550,6 +605,14 @@ const DepartmentPerformance: React.FC = () => {
         const max = Math.max(...sorted.map((d) => d.urgeCount));
         return max > 0 ? (item.urgeCount / max) * 100 : 0;
       }
+      case 'overdueCount': {
+        const max = Math.max(...sorted.map((d) => d.overdueCount));
+        return max > 0 ? (item.overdueCount / max) * 100 : 0;
+      }
+      case 'lowSatisfactionCount': {
+        const max = Math.max(...sorted.map((d) => d.lowSatisfactionCount));
+        return max > 0 ? (item.lowSatisfactionCount / max) * 100 : 0;
+      }
       default:
         return 0;
     }
@@ -569,8 +632,29 @@ const DepartmentPerformance: React.FC = () => {
         return `${item.satisfaction} 分`;
       case 'urgeCount':
         return `${item.urgeCount} 次`;
+      case 'overdueCount':
+        return `${item.overdueCount} 件`;
+      case 'lowSatisfactionCount':
+        return `${item.lowSatisfactionCount} 件`;
       default:
         return '';
+    }
+  };
+
+  const getDrillTypeForMetric = (metric: string): DrillDownType | null => {
+    switch (metric) {
+      case 'overdueCount':
+        return 'overdue';
+      case 'returnRate':
+      case 'returnCount':
+        return 'return';
+      case 'urgeCount':
+        return 'urge';
+      case 'satisfaction':
+      case 'lowSatisfactionCount':
+        return 'low_satisfaction';
+      default:
+        return null;
     }
   };
 
@@ -741,6 +825,100 @@ const DepartmentPerformance: React.FC = () => {
               </Card>
             </Col>
             <Col xs={12} md={8}>
+              <Card
+                className="shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+                onClick={() => handleDrillDown(selectedDept.departmentId, 'overdue')}
+              >
+                <Tooltip title="点击下钻查看超期工单">
+                  <Statistic
+                    title={
+                      <span className="flex items-center gap-1">
+                        超期工单数
+                        <span className="text-xs text-gray-400 ml-1">（点击下钻）</span>
+                      </span>
+                    }
+                    value={selectedDept.overdueCount}
+                    suffix="件"
+                    prefix={<AlertTriangle size={20} className="text-red-500" />}
+                    valueStyle={{ color: '#f5222d' }}
+                  />
+                </Tooltip>
+              </Card>
+            </Col>
+            <Col xs={12} md={8}>
+              <Card
+                className="shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+                onClick={() => handleDrillDown(selectedDept.departmentId, 'return')}
+              >
+                <Tooltip title="点击下钻查看退回工单">
+                  <Statistic
+                    title={
+                      <span className="flex items-center gap-1">
+                        退回率（退回{selectedDept.returnCount}件）
+                        <span className="text-xs text-gray-400 ml-1">（点击下钻）</span>
+                      </span>
+                    }
+                    value={selectedDept.returnRate}
+                    suffix="%"
+                    prefix={<RotateCcw size={20} className="text-orange-500" />}
+                    valueStyle={{
+                      color:
+                        selectedDept.returnRate <= 5
+                          ? '#52c41a'
+                          : selectedDept.returnRate <= 15
+                          ? '#faad14'
+                          : '#f5222d',
+                    }}
+                  />
+                </Tooltip>
+              </Card>
+            </Col>
+            <Col xs={12} md={8}>
+              <Card
+                className="shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+                onClick={() => handleDrillDown(selectedDept.departmentId, 'low_satisfaction')}
+              >
+                <Tooltip title="点击下钻查看满意度偏低工单">
+                  <Statistic
+                    title={
+                      <span className="flex items-center gap-1">
+                        平均满意度（偏低{selectedDept.lowSatisfactionCount}件）
+                        <span className="text-xs text-gray-400 ml-1">（点击下钻）</span>
+                      </span>
+                    }
+                    value={selectedDept.satisfaction}
+                    suffix="分"
+                    prefix={<Star size={20} className="text-yellow-500" />}
+                    valueStyle={{ color: '#faad14' }}
+                  />
+                </Tooltip>
+                <div className="mt-1">
+                  <Rate disabled defaultValue={selectedDept.satisfaction} style={{ fontSize: 14 }} />
+                </div>
+              </Card>
+            </Col>
+            <Col xs={12} md={8}>
+              <Card
+                className="shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+                onClick={() => handleDrillDown(selectedDept.departmentId, 'urge')}
+              >
+                <Tooltip title="点击下钻查看催办工单">
+                  <Statistic
+                    title={
+                      <span className="flex items-center gap-1">
+                        催办总次数
+                        <span className="text-xs text-gray-400 ml-1">（点击下钻）</span>
+                      </span>
+                    }
+                    value={selectedDept.urgeCount}
+                    suffix="次"
+                    prefix={<Bell size={20} className="text-orange-500" />}
+                    valueStyle={{ color: '#fa8c16' }}
+                  />
+                </Tooltip>
+              </Card>
+            </Col>
+            <Col xs={12} md={8}>
               <Card className="shadow-sm">
                 <Statistic
                   title="平均办理时长"
@@ -749,38 +927,6 @@ const DepartmentPerformance: React.FC = () => {
                   prefix={<Clock size={20} className="text-cyan-500" />}
                   valueStyle={{ color: '#13c2c2' }}
                 />
-              </Card>
-            </Col>
-            <Col xs={12} md={8}>
-              <Card className="shadow-sm">
-                <Statistic
-                  title="退回率"
-                  value={selectedDept.returnRate}
-                  suffix="%"
-                  prefix={<RotateCcw size={20} className="text-orange-500" />}
-                  valueStyle={{
-                    color:
-                      selectedDept.returnRate <= 5
-                        ? '#52c41a'
-                        : selectedDept.returnRate <= 15
-                        ? '#faad14'
-                        : '#f5222d',
-                  }}
-                />
-              </Card>
-            </Col>
-            <Col xs={12} md={8}>
-              <Card className="shadow-sm">
-                <Statistic
-                  title="平均满意度"
-                  value={selectedDept.satisfaction}
-                  suffix="分"
-                  prefix={<Star size={20} className="text-yellow-500" />}
-                  valueStyle={{ color: '#faad14' }}
-                />
-                <div className="mt-1">
-                  <Rate disabled defaultValue={selectedDept.satisfaction} style={{ fontSize: 14 }} />
-                </div>
               </Card>
             </Col>
           </Row>
@@ -814,22 +960,44 @@ const DepartmentPerformance: React.FC = () => {
                 <div className="space-y-3">
                   <div className="flex items-center">
                     <Building2 size={16} className="text-gray-400 mr-2" />
-                    <span className="text-gray-500 w-20">部门类型：</span>
+                    <span className="text-gray-500 w-24">部门类型：</span>
                     <Tag color="blue">{selectedDept.departmentType}</Tag>
                   </div>
-                  <div className="flex items-center">
+                  <div className="flex items-center cursor-pointer hover:bg-gray-50 rounded px-1 -mx-1" onClick={() => handleDrillDown(selectedDept.departmentId, 'urge')}>
                     <Bell size={16} className="text-gray-400 mr-2" />
-                    <span className="text-gray-500 w-20">催办总次数：</span>
-                    <span className="font-semibold text-orange-600">{selectedDept.urgeCount} 次</span>
+                    <span className="text-gray-500 w-24">催办总次数：</span>
+                    <span className="font-semibold text-orange-600 underline decoration-dotted">{selectedDept.urgeCount} 次</span>
+                    <Tooltip title="点击下钻查看催办工单">
+                      <Eye size={12} className="text-blue-500 ml-2" />
+                    </Tooltip>
                   </div>
-                  <div className="flex items-center">
+                  <div className="flex items-center cursor-pointer hover:bg-gray-50 rounded px-1 -mx-1" onClick={() => handleDrillDown(selectedDept.departmentId, 'return')}>
                     <RotateCcw size={16} className="text-gray-400 mr-2" />
-                    <span className="text-gray-500 w-20">退回总件数：</span>
-                    <span className="font-semibold text-red-600">{selectedDept.returnCount} 件</span>
+                    <span className="text-gray-500 w-24">退回总件数：</span>
+                    <span className="font-semibold text-red-600 underline decoration-dotted">{selectedDept.returnCount} 件</span>
+                    <Tooltip title="点击下钻查看退回工单">
+                      <Eye size={12} className="text-blue-500 ml-2" />
+                    </Tooltip>
+                  </div>
+                  <div className="flex items-center cursor-pointer hover:bg-gray-50 rounded px-1 -mx-1" onClick={() => handleDrillDown(selectedDept.departmentId, 'overdue')}>
+                    <AlertTriangle size={16} className="text-gray-400 mr-2" />
+                    <span className="text-gray-500 w-24">超期工单数：</span>
+                    <span className="font-semibold text-red-600 underline decoration-dotted">{selectedDept.overdueCount} 件</span>
+                    <Tooltip title="点击下钻查看超期工单">
+                      <Eye size={12} className="text-blue-500 ml-2" />
+                    </Tooltip>
+                  </div>
+                  <div className="flex items-center cursor-pointer hover:bg-gray-50 rounded px-1 -mx-1" onClick={() => handleDrillDown(selectedDept.departmentId, 'low_satisfaction')}>
+                    <Frown size={16} className="text-gray-400 mr-2" />
+                    <span className="text-gray-500 w-24">满意度偏低：</span>
+                    <span className="font-semibold text-orange-600 underline decoration-dotted">{selectedDept.lowSatisfactionCount} 件</span>
+                    <Tooltip title="点击下钻查看满意度偏低工单">
+                      <Eye size={12} className="text-blue-500 ml-2" />
+                    </Tooltip>
                   </div>
                   <div className="flex items-center">
                     <BarChart3 size={16} className="text-gray-400 mr-2" />
-                    <span className="text-gray-500 w-20">平均每件催办：</span>
+                    <span className="text-gray-500 w-24">平均每件催办：</span>
                     <span className="font-semibold">{selectedDept.avgUrgePerComplaint} 次</span>
                   </div>
                 </div>
@@ -907,7 +1075,7 @@ const DepartmentPerformance: React.FC = () => {
       </div>
 
       <Row gutter={[16, 16]}>
-        <Col xs={12} md={6}>
+        <Col xs={12} md={4}>
           <Card className="shadow-sm">
             <Statistic
               title="参评部门数"
@@ -918,7 +1086,7 @@ const DepartmentPerformance: React.FC = () => {
             />
           </Card>
         </Col>
-        <Col xs={12} md={6}>
+        <Col xs={12} md={4}>
           <Card className="shadow-sm">
             <Statistic
               title="平均按期办结率"
@@ -933,7 +1101,7 @@ const DepartmentPerformance: React.FC = () => {
             </div>
           </Card>
         </Col>
-        <Col xs={12} md={6}>
+        <Col xs={12} md={4}>
           <Card className="shadow-sm">
             <Statistic
               title="平均满意度"
@@ -947,19 +1115,92 @@ const DepartmentPerformance: React.FC = () => {
             </div>
           </Card>
         </Col>
-        <Col xs={12} md={6}>
-          <Card className="shadow-sm">
-            <Statistic
-              title="总催办次数"
-              value={overallStats.totalUrgeCount}
-              suffix="次"
-              prefix={<Bell size={20} className="text-orange-500" />}
-              valueStyle={{ color: '#fa8c16' }}
-            />
+        <Col xs={12} md={4}>
+          <Card
+            className="shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+            onClick={() => handleDrillDown('', 'overdue')}
+          >
+            <Tooltip title="点击查看所有超期工单">
+              <Statistic
+                title={
+                  <span className="flex items-center gap-1">
+                    超期工单数
+                    <span className="text-xs text-gray-400 ml-1">（点击下钻）</span>
+                  </span>
+                }
+                value={overallStats.totalOverdueCount}
+                suffix="件"
+                prefix={<AlertTriangle size={20} className="text-red-500" />}
+                valueStyle={{ color: '#f5222d' }}
+              />
+            </Tooltip>
+          </Card>
+        </Col>
+        <Col xs={12} md={4}>
+          <Card
+            className="shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+            onClick={() => handleDrillDown('', 'return')}
+          >
+            <Tooltip title="点击查看所有退回工单">
+              <Statistic
+                title={
+                  <span className="flex items-center gap-1">
+                    退回总件数
+                    <span className="text-xs text-gray-400 ml-1">（点击下钻）</span>
+                  </span>
+                }
+                value={overallStats.totalReturnCount}
+                suffix="件"
+                prefix={<RotateCcw size={20} className="text-orange-500" />}
+                valueStyle={{ color: '#fa8c16' }}
+              />
+            </Tooltip>
+          </Card>
+        </Col>
+        <Col xs={12} md={4}>
+          <Card
+            className="shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+            onClick={() => handleDrillDown('', 'urge')}
+          >
+            <Tooltip title="点击查看所有催办工单">
+              <Statistic
+                title={
+                  <span className="flex items-center gap-1">
+                    总催办次数
+                    <span className="text-xs text-gray-400 ml-1">（点击下钻）</span>
+                  </span>
+                }
+                value={overallStats.totalUrgeCount}
+                suffix="次"
+                prefix={<Bell size={20} className="text-orange-500" />}
+                valueStyle={{ color: '#fa8c16' }}
+              />
+            </Tooltip>
             <div className="mt-2 flex items-center gap-1 text-sm text-green-500">
               <TrendingDown size={14} />
               <span>较上月下降 12.5%</span>
             </div>
+          </Card>
+        </Col>
+        <Col xs={12} md={4}>
+          <Card
+            className="shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+            onClick={() => handleDrillDown('', 'low_satisfaction')}
+          >
+            <Tooltip title="点击查看所有满意度偏低工单">
+              <Statistic
+                title={
+                  <span className="flex items-center gap-1">
+                    满意度偏低工单数
+                    <span className="text-xs text-gray-400 ml-1">（点击下钻）</span>
+                  </span>
+                }
+                value={overallStats.totalLowSatisfactionCount}
+                suffix="件"
+                prefix={<Frown size={20} className="text-orange-500" />}
+                valueStyle={{ color: '#faad14' }}
+              />
+            </Tooltip>
           </Card>
         </Col>
       </Row>
@@ -985,10 +1226,11 @@ const DepartmentPerformance: React.FC = () => {
           >
             <List
               dataSource={sortedDeptData.filter((d) => d.totalCount > 0).slice(0, 10)}
-              renderItem={(item, index) => (
+              renderItem={(item, index) => {
+                const drillType = getDrillTypeForMetric(rankMetric);
+                return (
                 <List.Item
-                  className="px-0 py-3 cursor-pointer hover:bg-gray-50 rounded-lg px-2 -mx-2 transition-colors"
-                  onClick={() => handleDeptClick(item)}
+                  className="px-0 py-3 hover:bg-gray-50 rounded-lg px-2 -mx-2 transition-colors"
                 >
                   <div className="flex items-center w-full">
                     <span
@@ -996,7 +1238,10 @@ const DepartmentPerformance: React.FC = () => {
                     >
                       {index + 1}
                     </span>
-                    <span className="flex-1 text-gray-700 font-medium truncate mr-2">
+                    <span
+                      className="flex-1 text-gray-700 font-medium truncate mr-2 cursor-pointer"
+                      onClick={() => handleDeptClick(item)}
+                    >
                       {item.departmentName}
                     </span>
                     <Tag className="mr-3 flex-shrink-0">{item.departmentType}</Tag>
@@ -1005,7 +1250,7 @@ const DepartmentPerformance: React.FC = () => {
                         percent={getProgressPercent(item, rankMetric)}
                         size="small"
                         strokeColor={
-                          rankMetric === 'returnRate' || rankMetric === 'avgDuration'
+                          rankMetric === 'returnRate' || rankMetric === 'avgDuration' || rankMetric === 'overdueCount' || rankMetric === 'lowSatisfactionCount'
                             ? '#fa8c16'
                             : rankMetric === 'urgeCount'
                             ? '#faad14'
@@ -1014,14 +1259,25 @@ const DepartmentPerformance: React.FC = () => {
                         showInfo={false}
                       />
                     </div>
-                    <span
-                      className={`font-semibold w-20 text-right flex-shrink-0 ${getMetricColor(rankMetric, item[rankMetric as keyof DeptPerformance] as number)}`}
-                    >
-                      {getMetricValue(item, rankMetric)}
-                    </span>
+                    <Tooltip title={drillType ? `点击下钻查看${drillDownLabelMap[drillType]}` : '点击部门名称查看详情'}>
+                      <span
+                        className={`font-semibold w-20 text-right flex-shrink-0 ${getMetricColor(rankMetric, item[rankMetric as keyof DeptPerformance] as number)} ${drillType ? 'cursor-pointer underline decoration-dotted hover:opacity-80' : ''}`}
+                        onClick={(e) => {
+                          if (drillType) {
+                            e.stopPropagation();
+                            handleDrillDown(item.departmentId, drillType);
+                          } else {
+                            handleDeptClick(item);
+                          }
+                        }}
+                      >
+                        {getMetricValue(item, rankMetric)}
+                      </span>
+                    </Tooltip>
                   </div>
                 </List.Item>
-              )}
+              );
+              }}
             />
             {sortedDeptData.filter((d) => d.totalCount > 0).length === 0 && (
               <Empty description="暂无数据" className="py-8" />

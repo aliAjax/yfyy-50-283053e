@@ -33,12 +33,15 @@ import {
   X,
   Save,
   LayoutGrid,
+  RotateCcw,
+  Frown,
+  ArrowLeft,
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import type { ColumnsType } from 'antd/es/table';
 import dayjs from 'dayjs';
 import { useAppStore } from '@/store/appStore';
-import type { Complaint, ComplaintSource, ComplaintStatus, TimelineRecord, Department, AssignSource, DuplicateComplaintResult, FilterView, ComplaintListFilters } from '@/types';
+import type { Complaint, ComplaintSource, ComplaintStatus, TimelineRecord, Department, AssignSource, DuplicateComplaintResult, FilterView, ComplaintListFilters, DrillDownType } from '@/types';
 import { StatusTag, SourceTag, SatisfactionTag } from '@/components/StatusTags';
 import { categories, areas, departments, statusMap, sourceMap, assignSourceMap, statusColorMap } from '@/data/dictionaries';
 import type { DispatchMatchResult } from '@/lib/utils';
@@ -46,6 +49,7 @@ import { getSimilarityColor, getSimilarityLabel, getSimilarityLevel } from '@/li
 
 const ComplaintList: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { complaints, updateComplaint, addTimeline, addComplaint, matchDispatch, detectDuplicates, mergeComplaint, filterViews, addFilterView, deleteFilterView } = useAppStore();
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [form] = Form.useForm();
@@ -63,19 +67,53 @@ const ComplaintList: React.FC = () => {
   const [pendingSubmitData, setPendingSubmitData] = useState<any>(null);
   const [checkingDuplicates, setCheckingDuplicates] = useState(false);
 
-  const [filters, setFilters] = useState<ComplaintListFilters>({
-    keyword: '',
-    source: undefined,
-    status: undefined,
-    categoryId: undefined,
-    areaId: undefined,
-    departmentId: undefined,
-    isRepeat: undefined,
+  const [filters, setFilters] = useState<ComplaintListFilters>(() => {
+    const initial: ComplaintListFilters = {
+      keyword: '',
+      source: undefined,
+      status: undefined,
+      categoryId: undefined,
+      areaId: undefined,
+      departmentId: undefined,
+      isRepeat: undefined,
+      drillDownType: undefined,
+      satisfactionLow: undefined,
+      hasReturn: undefined,
+      hasUrge: undefined,
+      isOverdue: undefined,
+    };
+    const deptId = searchParams.get('departmentId');
+    const drillType = searchParams.get('drillDownType') as DrillDownType | null;
+    const isOverdue = searchParams.get('isOverdue');
+    const hasReturn = searchParams.get('hasReturn');
+    const hasUrge = searchParams.get('hasUrge');
+    const satisfactionLow = searchParams.get('satisfactionLow');
+    if (deptId) initial.departmentId = deptId || undefined;
+    if (drillType) initial.drillDownType = drillType;
+    if (isOverdue === 'true') initial.isOverdue = true;
+    if (hasReturn === 'true') initial.hasReturn = true;
+    if (hasUrge === 'true') initial.hasUrge = true;
+    if (satisfactionLow === 'true') initial.satisfactionLow = true;
+    return initial;
   });
   const [saveViewModalVisible, setSaveViewModalVisible] = useState(false);
   const [viewNameInput, setViewNameInput] = useState('');
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
   const isViewSwitching = useRef(false);
+
+  const drillDownLabelMap: Record<DrillDownType, string> = {
+    overdue: '超期工单',
+    return: '退回工单',
+    urge: '催办工单',
+    low_satisfaction: '满意度偏低工单',
+  };
+
+  const drillDownIconMap: Record<DrillDownType, React.ReactNode> = {
+    overdue: <AlertTriangle size={16} className="text-red-500" />,
+    return: <RotateCcw size={16} className="text-orange-500" />,
+    urge: <Bell size={16} className="text-orange-500" />,
+    low_satisfaction: <Frown size={16} className="text-orange-500" />,
+  };
 
   const filteredComplaints = complaints.filter((c) => {
     if (filters.keyword && !c.title.includes(filters.keyword) && !c.id.includes(filters.keyword)) {
@@ -87,6 +125,20 @@ const ComplaintList: React.FC = () => {
     if (filters.areaId && c.areaId !== filters.areaId) return false;
     if (filters.departmentId && c.departmentId !== filters.departmentId) return false;
     if (filters.isRepeat !== undefined && c.isRepeat !== filters.isRepeat) return false;
+    if (filters.isOverdue) {
+      const isOd = c.status !== 'completed' && dayjs().isAfter(dayjs(c.deadline));
+      if (!isOd) return false;
+    }
+    if (filters.hasReturn) {
+      const hasRet = c.timelines.some((t) => t.type === 'return');
+      if (!hasRet) return false;
+    }
+    if (filters.hasUrge) {
+      if (!c.urgeCount || c.urgeCount <= 0) return false;
+    }
+    if (filters.satisfactionLow) {
+      if (!c.satisfaction || c.satisfaction >= 3.5) return false;
+    }
     return true;
   });
 
@@ -278,8 +330,32 @@ const ComplaintList: React.FC = () => {
       areaId: undefined,
       departmentId: undefined,
       isRepeat: undefined,
+      drillDownType: undefined,
+      satisfactionLow: undefined,
+      hasReturn: undefined,
+      hasUrge: undefined,
+      isOverdue: undefined,
     });
     setActiveViewId(null);
+    setSearchParams({});
+  };
+
+  const clearDrillDown = () => {
+    setFilters((prev) => ({
+      ...prev,
+      drillDownType: undefined,
+      satisfactionLow: undefined,
+      hasReturn: undefined,
+      hasUrge: undefined,
+      isOverdue: undefined,
+    }));
+    const newParams = new URLSearchParams(searchParams);
+    newParams.delete('drillDownType');
+    newParams.delete('isOverdue');
+    newParams.delete('hasReturn');
+    newParams.delete('hasUrge');
+    newParams.delete('satisfactionLow');
+    setSearchParams(newParams);
   };
 
   const handleSaveView = () => {
@@ -327,7 +403,19 @@ const ComplaintList: React.FC = () => {
       setActiveViewId(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.keyword, filters.source, filters.status, filters.categoryId, filters.areaId, filters.departmentId, filters.isRepeat]);
+  }, [filters.keyword, filters.source, filters.status, filters.categoryId, filters.areaId, filters.departmentId, filters.isRepeat, filters.drillDownType, filters.isOverdue, filters.hasReturn, filters.hasUrge, filters.satisfactionLow]);
+
+  useEffect(() => {
+    const newParams = new URLSearchParams();
+    if (filters.departmentId) newParams.set('departmentId', filters.departmentId);
+    if (filters.drillDownType) newParams.set('drillDownType', filters.drillDownType);
+    if (filters.isOverdue) newParams.set('isOverdue', 'true');
+    if (filters.hasReturn) newParams.set('hasReturn', 'true');
+    if (filters.hasUrge) newParams.set('hasUrge', 'true');
+    if (filters.satisfactionLow) newParams.set('satisfactionLow', 'true');
+    setSearchParams(newParams, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.departmentId, filters.drillDownType, filters.isOverdue, filters.hasReturn, filters.hasUrge, filters.satisfactionLow]);
 
   useEffect(() => {
     if (selectedCategoryId && selectedAreaId) {
@@ -578,10 +666,80 @@ const ComplaintList: React.FC = () => {
     filters.categoryId ||
     filters.areaId ||
     filters.departmentId ||
-    filters.isRepeat !== undefined;
+    filters.isRepeat !== undefined ||
+    filters.isOverdue ||
+    filters.hasReturn ||
+    filters.hasUrge ||
+    filters.satisfactionLow;
+
+  const hasDrillDown =
+    filters.drillDownType ||
+    filters.isOverdue ||
+    filters.hasReturn ||
+    filters.hasUrge ||
+    filters.satisfactionLow;
+
+  const selectedDepartmentName = filters.departmentId
+    ? departments.find((d) => d.id === filters.departmentId)?.name
+    : undefined;
 
   return (
     <div className="space-y-4">
+      {hasDrillDown && (
+        <Alert
+          type="info"
+          showIcon
+          icon={
+            filters.drillDownType
+              ? drillDownIconMap[filters.drillDownType]
+              : <AlertTriangle size={16} className="text-blue-500" />
+          }
+          message={
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-medium">筛选来源：</span>
+              {filters.drillDownType && (
+                <Tag color="blue" icon={drillDownIconMap[filters.drillDownType]}>
+                  {drillDownLabelMap[filters.drillDownType]}
+                </Tag>
+              )}
+              {selectedDepartmentName && (
+                <Tag color="cyan" icon={<Building2 size={12} />}>
+                  责任单位：{selectedDepartmentName}
+                </Tag>
+              )}
+              {filters.isOverdue && !filters.drillDownType && (
+                <Tag color="red" icon={<AlertTriangle size={12} />}>超期工单</Tag>
+              )}
+              {filters.hasReturn && !filters.drillDownType && (
+                <Tag color="orange" icon={<RotateCcw size={12} />}>退回工单</Tag>
+              )}
+              {filters.hasUrge && !filters.drillDownType && (
+                <Tag color="orange" icon={<Bell size={12} />}>催办工单</Tag>
+              )}
+              {filters.satisfactionLow && !filters.drillDownType && (
+                <Tag color="orange" icon={<Frown size={12} />}>满意度偏低</Tag>
+              )}
+              <Button
+                type="link"
+                size="small"
+                icon={<ArrowLeft size={12} />}
+                onClick={() => navigate('/department-performance')}
+              >
+                返回绩效页
+              </Button>
+              <Button
+                type="link"
+                size="small"
+                icon={<X size={12} />}
+                onClick={clearDrillDown}
+              >
+                清除下钻筛选
+              </Button>
+            </div>
+          }
+          className="border-blue-100 bg-blue-50/50"
+        />
+      )}
       <div className="bg-white rounded-lg shadow-sm">
         <div className="px-4 pt-3 pb-2 border-b border-gray-100">
           <div className="flex items-center justify-between">
@@ -726,7 +884,7 @@ const ComplaintList: React.FC = () => {
               <Space className="w-full justify-end">
                 {hasActiveFilters && (
                   <span className="text-xs text-gray-400">
-                    已选择 {Object.values(filters).filter((v) => v !== undefined && v !== '').length} 个筛选条件
+                    已选择 {Object.values(filters).filter((v) => v !== undefined && v !== '' && v !== false).length} 个筛选条件
                   </span>
                 )}
                 <Button icon={<Filter size={14} />} size="small" onClick={resetFilters}>
@@ -735,6 +893,89 @@ const ComplaintList: React.FC = () => {
               </Space>
             </Col>
           </Row>
+          {hasDrillDown && (
+            <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-gray-100">
+              <span className="text-xs text-gray-500">下钻筛选：</span>
+              {filters.drillDownType && (
+                <Tag
+                  color="blue"
+                  closable
+                  onClose={(e) => {
+                    e.preventDefault();
+                    setFilters((prev) => ({ ...prev, drillDownType: undefined }));
+                  }}
+                  icon={drillDownIconMap[filters.drillDownType]}
+                >
+                  {drillDownLabelMap[filters.drillDownType]}
+                </Tag>
+              )}
+              {filters.isOverdue && !filters.drillDownType && (
+                <Tag
+                  color="red"
+                  closable
+                  onClose={(e) => {
+                    e.preventDefault();
+                    setFilters((prev) => ({ ...prev, isOverdue: undefined }));
+                  }}
+                  icon={<AlertTriangle size={12} />}
+                >
+                  超期工单
+                </Tag>
+              )}
+              {filters.hasReturn && !filters.drillDownType && (
+                <Tag
+                  color="orange"
+                  closable
+                  onClose={(e) => {
+                    e.preventDefault();
+                    setFilters((prev) => ({ ...prev, hasReturn: undefined }));
+                  }}
+                  icon={<RotateCcw size={12} />}
+                >
+                  退回工单
+                </Tag>
+              )}
+              {filters.hasUrge && !filters.drillDownType && (
+                <Tag
+                  color="orange"
+                  closable
+                  onClose={(e) => {
+                    e.preventDefault();
+                    setFilters((prev) => ({ ...prev, hasUrge: undefined }));
+                  }}
+                  icon={<Bell size={12} />}
+                >
+                  催办工单
+                </Tag>
+              )}
+              {filters.satisfactionLow && !filters.drillDownType && (
+                <Tag
+                  color="orange"
+                  closable
+                  onClose={(e) => {
+                    e.preventDefault();
+                    setFilters((prev) => ({ ...prev, satisfactionLow: undefined }));
+                  }}
+                  icon={<Frown size={12} />}
+                >
+                  满意度偏低
+                </Tag>
+              )}
+              {selectedDepartmentName && (
+                <Tag
+                  color="cyan"
+                  closable
+                  onClose={(e) => {
+                    e.preventDefault();
+                    setFilters((prev) => ({ ...prev, departmentId: undefined }));
+                  }}
+                  icon={<Building2 size={12} />}
+                >
+                  责任单位：{selectedDepartmentName}
+                </Tag>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -1317,7 +1558,19 @@ const ComplaintList: React.FC = () => {
               {filters.isRepeat !== undefined && (
                 <Tag color="pink">重复投诉: {filters.isRepeat ? '是' : '否'}</Tag>
               )}
-              {!filters.keyword && !filters.source && !filters.status && !filters.categoryId && !filters.areaId && !filters.departmentId && filters.isRepeat === undefined && (
+              {filters.isOverdue && (
+                <Tag color="red" icon={<AlertTriangle size={10} />}>超期工单</Tag>
+              )}
+              {filters.hasReturn && (
+                <Tag color="orange" icon={<RotateCcw size={10} />}>退回工单</Tag>
+              )}
+              {filters.hasUrge && (
+                <Tag color="orange" icon={<Bell size={10} />}>催办工单</Tag>
+              )}
+              {filters.satisfactionLow && (
+                <Tag color="orange" icon={<Frown size={10} />}>满意度偏低</Tag>
+              )}
+              {!filters.keyword && !filters.source && !filters.status && !filters.categoryId && !filters.areaId && !filters.departmentId && filters.isRepeat === undefined && !filters.isOverdue && !filters.hasReturn && !filters.hasUrge && !filters.satisfactionLow && (
                 <span className="text-sm text-gray-400">无筛选条件</span>
               )}
             </div>
