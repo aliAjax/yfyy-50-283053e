@@ -12,6 +12,10 @@ import type {
   Notification,
   KnowledgeEntry,
   DispatchRule,
+  RiskRule,
+  WarningAlert,
+  RiskRuleType,
+  RiskLevel,
 } from '@/types';
 import { categories, areas, departments } from './dictionaries';
 
@@ -668,4 +672,195 @@ export const generateDispatchRules = (): DispatchRule[] => {
       updatedAt,
     };
   });
+};
+
+const riskRuleTemplates: {
+  type: RiskRuleType;
+  name: string;
+  description: string;
+  priority: number;
+  threshold: RiskRule['threshold'];
+}[] = [
+  {
+    type: 'expiring',
+    name: '临期预警',
+    description: '距离办理时限不足指定天数的工单自动预警',
+    priority: 80,
+    threshold: { daysLeft: 2 },
+  },
+  {
+    type: 'overdue',
+    name: '超期预警',
+    description: '已超过办理时限仍未办结的工单自动预警',
+    priority: 100,
+    threshold: {},
+  },
+  {
+    type: 'multi_urge',
+    name: '多次催办预警',
+    description: '被催办次数达到阈值的工单自动预警',
+    priority: 90,
+    threshold: { urgeCount: 2 },
+  },
+  {
+    type: 'repeat_cluster',
+    name: '重复投诉聚集预警',
+    description: '同一区域或同一问题在指定时间内重复投诉达到阈值',
+    priority: 85,
+    threshold: { repeatCount: 3, repeatDays: 7 },
+  },
+  {
+    type: 'low_satisfaction',
+    name: '低满意度预警',
+    description: '已办结工单满意度低于阈值时自动预警',
+    priority: 70,
+    threshold: { satisfactionBelow: 3 },
+  },
+];
+
+export const generateRiskRules = (): RiskRule[] => {
+  return riskRuleTemplates.map((template, index) => {
+    const createdAt = dayjs()
+      .subtract(Random.integer(30, 90), 'day')
+      .format('YYYY-MM-DD HH:mm:ss');
+    const updatedAt = dayjs(createdAt)
+      .add(Random.integer(1, 15), 'day')
+      .format('YYYY-MM-DD HH:mm:ss');
+
+    return {
+      id: `RR${String(index + 1).padStart(4, '0')}`,
+      name: template.name,
+      type: template.type,
+      description: template.description,
+      enabled: true,
+      priority: template.priority,
+      threshold: { ...template.threshold },
+      scope: { type: 'all' },
+      createdAt,
+      updatedAt,
+      creator: '系统管理员',
+    };
+  });
+};
+
+const getRiskLevel = (complaint: Complaint, ruleType: RiskRuleType): RiskLevel => {
+  const isOverdue = dayjs().isAfter(dayjs(complaint.deadline)) && complaint.status !== 'completed';
+  const daysLeft = dayjs(complaint.deadline).diff(dayjs(), 'day');
+  const urgeCount = complaint.urgeCount || 0;
+
+  if (ruleType === 'overdue' || urgeCount >= 3 || daysLeft < 0) {
+    return 'high';
+  }
+  if (ruleType === 'expiring' && daysLeft <= 1) {
+    return 'medium';
+  }
+  if (urgeCount >= 2) {
+    return 'medium';
+  }
+  return 'low';
+};
+
+export const generateWarningAlerts = (
+  complaints: Complaint[],
+  rules: RiskRule[]
+): WarningAlert[] => {
+  const alerts: WarningAlert[] = [];
+  let alertIdCounter = 1;
+
+  const enabledRules = rules.filter((r) => r.enabled);
+
+  enabledRules.forEach((rule) => {
+    const matchedComplaints = complaints.filter((c) => {
+      if (rule.scope.type === 'department' && rule.scope.departmentIds?.length) {
+        if (!rule.scope.departmentIds.includes(c.departmentId)) return false;
+      }
+      if (rule.scope.type === 'area' && rule.scope.areaIds?.length) {
+        if (!rule.scope.areaIds.includes(c.areaId)) return false;
+      }
+      if (rule.scope.type === 'category' && rule.scope.categoryIds?.length) {
+        const catMatch = rule.scope.categoryIds.some(
+          (catId) => c.categoryId === catId || c.categoryId.startsWith(catId + '-')
+        );
+        if (!catMatch) return false;
+      }
+
+      switch (rule.type) {
+        case 'expiring': {
+          if (c.status === 'completed') return false;
+          const daysLeft = dayjs(c.deadline).diff(dayjs(), 'day');
+          const threshold = rule.threshold.daysLeft ?? 2;
+          return daysLeft >= 0 && daysLeft <= threshold;
+        }
+        case 'overdue': {
+          if (c.status === 'completed') return false;
+          return dayjs().isAfter(dayjs(c.deadline));
+        }
+        case 'multi_urge': {
+          if (c.status === 'completed') return false;
+          const threshold = rule.threshold.urgeCount ?? 2;
+          return (c.urgeCount || 0) >= threshold;
+        }
+        case 'repeat_cluster': {
+          return !!c.isRepeat && (c.repeatCount || 0) >= (rule.threshold.repeatCount ?? 3);
+        }
+        case 'low_satisfaction': {
+          if (c.status !== 'completed') return false;
+          const threshold = rule.threshold.satisfactionBelow ?? 3;
+          return c.satisfaction !== undefined && c.satisfaction < threshold;
+        }
+        default:
+          return false;
+      }
+    });
+
+    matchedComplaints.forEach((complaint) => {
+      const riskLevel = getRiskLevel(complaint, rule.type);
+      const triggeredAt = dayjs()
+        .subtract(Random.integer(0, 48), 'hour')
+        .subtract(Random.integer(0, 59), 'minute')
+        .format('YYYY-MM-DD HH:mm:ss');
+
+      const statuses: WarningAlert['status'][] = ['pending', 'pending', 'pending', 'processing', 'handled'];
+      const status = Random.pick(statuses);
+
+      const alert: WarningAlert = {
+        id: `WA${String(alertIdCounter++).padStart(5, '0')}`,
+        ruleId: rule.id,
+        ruleName: rule.name,
+        ruleType: rule.type,
+        complaintId: complaint.id,
+        complaintTitle: complaint.title,
+        riskLevel,
+        status,
+        triggeredAt,
+        detail: {},
+      };
+
+      if (status === 'handled') {
+        alert.handledAt = dayjs(triggeredAt)
+          .add(Random.integer(1, 24), 'hour')
+          .format('YYYY-MM-DD HH:mm:ss');
+        alert.handler = Random.pick(['督办员 李督办', '主管 王主管', '管理员']);
+      }
+
+      alerts.push(alert);
+    });
+  });
+
+  const uniqueAlerts: WarningAlert[] = [];
+  const seenKeys = new Set<string>();
+
+  for (const alert of alerts) {
+    const key = `${alert.ruleId}-${alert.complaintId}`;
+    if (!seenKeys.has(key) || alert.status === 'pending') {
+      if (!seenKeys.has(key)) {
+        uniqueAlerts.push(alert);
+        seenKeys.add(key);
+      }
+    }
+  }
+
+  return uniqueAlerts.sort(
+    (a, b) => dayjs(b.triggeredAt).valueOf() - dayjs(a.triggeredAt).valueOf()
+  );
 };

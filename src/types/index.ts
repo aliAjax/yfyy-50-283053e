@@ -253,6 +253,65 @@ export interface SimulationState {
   startTimestamp: string;
 }
 
+export type RiskLevel = 'high' | 'medium' | 'low';
+
+export type RiskRuleType =
+  | 'expiring'
+  | 'overdue'
+  | 'multi_urge'
+  | 'repeat_cluster'
+  | 'low_satisfaction';
+
+export type RiskRuleScope = 'all' | 'department' | 'area' | 'category';
+
+export interface RiskRuleScopeConfig {
+  type: RiskRuleScope;
+  departmentIds?: string[];
+  areaIds?: string[];
+  categoryIds?: string[];
+}
+
+export interface RiskRuleThreshold {
+  daysLeft?: number;
+  urgeCount?: number;
+  repeatCount?: number;
+  repeatDays?: number;
+  satisfactionBelow?: number;
+  windowDays?: number;
+}
+
+export interface RiskRule {
+  id: string;
+  name: string;
+  type: RiskRuleType;
+  description?: string;
+  enabled: boolean;
+  priority: number;
+  threshold: RiskRuleThreshold;
+  scope: RiskRuleScopeConfig;
+  createdAt: string;
+  updatedAt: string;
+  creator?: string;
+}
+
+export type WarningStatus = 'pending' | 'processing' | 'handled' | 'ignored';
+
+export interface WarningAlert {
+  id: string;
+  ruleId: string;
+  ruleName: string;
+  ruleType: RiskRuleType;
+  complaintId: string;
+  complaintTitle: string;
+  riskLevel: RiskLevel;
+  status: WarningStatus;
+  triggeredAt: string;
+  handledAt?: string;
+  handler?: string;
+  remark?: string;
+  detail?: Record<string, string | number | boolean | null | undefined>;
+}
+
 export interface ComplaintListFilters {
   keyword: string;
   source?: ComplaintSource;

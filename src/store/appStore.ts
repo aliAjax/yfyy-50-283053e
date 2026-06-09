@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import dayjs from 'dayjs';
-import type { Complaint, User, DashboardStats, ExtensionRequest, TimelineRecord, Notification, KnowledgeEntry, DispatchRule, DuplicateComplaintResult, DuplicateDetectionInput, FilterView, ComplaintListFilters } from '@/types';
-import { generateComplaints, generateDashboardStats, generateExtensionRequests, generateNotifications, generateKnowledgeEntries, generateDispatchRules } from '@/data/mockData';
+import type { Complaint, User, DashboardStats, ExtensionRequest, TimelineRecord, Notification, KnowledgeEntry, DispatchRule, DuplicateComplaintResult, DuplicateDetectionInput, FilterView, ComplaintListFilters, RiskRule, WarningAlert, RiskLevel, WarningStatus } from '@/types';
+import { generateComplaints, generateDashboardStats, generateExtensionRequests, generateNotifications, generateKnowledgeEntries, generateDispatchRules, generateRiskRules, generateWarningAlerts } from '@/data/mockData';
 import { matchDispatchRule, detectDuplicateComplaints } from '@/lib/utils';
 
 interface PublicComplaintInput {
@@ -29,6 +29,8 @@ interface AppState {
   notifications: Notification[];
   knowledgeEntries: KnowledgeEntry[];
   dispatchRules: DispatchRule[];
+  riskRules: RiskRule[];
+  warningAlerts: WarningAlert[];
   setUser: (user: User | null) => void;
   getComplaintById: (id: string) => Complaint | undefined;
   addComplaint: (complaint: Complaint) => void;
@@ -63,6 +65,16 @@ interface AppState {
   addFilterView: (name: string, filters: ComplaintListFilters) => void;
   deleteFilterView: (id: string) => void;
   updateFilterView: (id: string, updates: Partial<FilterView>) => void;
+  getRiskRuleById: (id: string) => RiskRule | undefined;
+  addRiskRule: (rule: Omit<RiskRule, 'id' | 'createdAt' | 'updatedAt'>) => void;
+  updateRiskRule: (id: string, updates: Partial<RiskRule>) => void;
+  deleteRiskRule: (id: string) => void;
+  toggleRiskRuleStatus: (id: string) => void;
+  evaluateRiskRules: () => void;
+  getWarningById: (id: string) => WarningAlert | undefined;
+  updateWarningStatus: (id: string, status: WarningStatus, handler?: string, remark?: string) => void;
+  getWarningsByRule: (ruleId: string) => WarningAlert[];
+  getWarningsByComplaint: (complaintId: string) => WarningAlert[];
 }
 
 const initialComplaints = generateComplaints(60);
@@ -71,6 +83,8 @@ const initialExtensions = generateExtensionRequests(initialComplaints);
 const initialNotifications = generateNotifications(initialComplaints, initialExtensions);
 const initialKnowledgeEntries = generateKnowledgeEntries();
 const initialDispatchRules = generateDispatchRules();
+const initialRiskRules = generateRiskRules();
+const initialWarningAlerts = generateWarningAlerts(initialComplaints, initialRiskRules);
 const initialFilterViews: FilterView[] = [
   {
     id: 'FV001',
@@ -124,6 +138,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   notifications: initialNotifications,
   knowledgeEntries: initialKnowledgeEntries,
   dispatchRules: initialDispatchRules,
+  riskRules: initialRiskRules,
+  warningAlerts: initialWarningAlerts,
   filterViews: initialFilterViews,
 
   setUser: (user) => set({ user }),
@@ -653,5 +669,179 @@ export const useAppStore = create<AppState>((set, get) => ({
         v.id === id ? { ...v, ...updates } : v
       ),
     }));
+  },
+
+  getRiskRuleById: (id) => {
+    return get().riskRules.find((r) => r.id === id);
+  },
+
+  addRiskRule: (rule) => {
+    const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    const maxId = get().riskRules.reduce((max, r) => {
+      const num = parseInt(r.id.replace('RR', ''), 10);
+      return num > max ? num : max;
+    }, 0);
+    const newId = `RR${String(maxId + 1).padStart(4, '0')}`;
+    const newRule: RiskRule = {
+      ...rule,
+      id: newId,
+      createdAt: now,
+      updatedAt: now,
+    };
+    set((state) => ({
+      riskRules: [newRule, ...state.riskRules],
+    }));
+    get().evaluateRiskRules();
+  },
+
+  updateRiskRule: (id, updates) => {
+    const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    set((state) => ({
+      riskRules: state.riskRules.map((r) =>
+        r.id === id ? { ...r, ...updates, updatedAt: now } : r
+      ),
+    }));
+    get().evaluateRiskRules();
+  },
+
+  deleteRiskRule: (id) => {
+    set((state) => ({
+      riskRules: state.riskRules.filter((r) => r.id !== id),
+      warningAlerts: state.warningAlerts.filter((a) => a.ruleId !== id),
+    }));
+  },
+
+  toggleRiskRuleStatus: (id) => {
+    const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    set((state) => ({
+      riskRules: state.riskRules.map((r) =>
+        r.id === id ? { ...r, enabled: !r.enabled, updatedAt: now } : r
+      ),
+    }));
+    get().evaluateRiskRules();
+  },
+
+  evaluateRiskRules: () => {
+    const { complaints, riskRules } = get();
+    const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    const newAlerts: WarningAlert[] = [];
+    const existingPending = new Map<string, WarningAlert>();
+
+    get().warningAlerts.forEach((a) => {
+      if (a.status === 'pending' || a.status === 'processing') {
+        existingPending.set(`${a.ruleId}-${a.complaintId}`, a);
+      }
+    });
+
+    const enabledRules = riskRules.filter((r) => r.enabled);
+
+    enabledRules.forEach((rule) => {
+      const matchedComplaints = complaints.filter((c) => {
+        if (rule.scope.type === 'department' && rule.scope.departmentIds?.length) {
+          if (!rule.scope.departmentIds.includes(c.departmentId)) return false;
+        }
+        if (rule.scope.type === 'area' && rule.scope.areaIds?.length) {
+          if (!rule.scope.areaIds.includes(c.areaId)) return false;
+        }
+        if (rule.scope.type === 'category' && rule.scope.categoryIds?.length) {
+          const catMatch = rule.scope.categoryIds.some(
+            (catId) => c.categoryId === catId || c.categoryId.startsWith(catId + '-')
+          );
+          if (!catMatch) return false;
+        }
+
+        switch (rule.type) {
+          case 'expiring': {
+            if (c.status === 'completed') return false;
+            const daysLeft = dayjs(c.deadline).diff(dayjs(), 'day');
+            const threshold = rule.threshold.daysLeft ?? 2;
+            return daysLeft >= 0 && daysLeft <= threshold;
+          }
+          case 'overdue': {
+            if (c.status === 'completed') return false;
+            return dayjs().isAfter(dayjs(c.deadline));
+          }
+          case 'multi_urge': {
+            if (c.status === 'completed') return false;
+            const threshold = rule.threshold.urgeCount ?? 2;
+            return (c.urgeCount || 0) >= threshold;
+          }
+          case 'repeat_cluster': {
+            return !!c.isRepeat && (c.repeatCount || 0) >= (rule.threshold.repeatCount ?? 3);
+          }
+          case 'low_satisfaction': {
+            if (c.status !== 'completed') return false;
+            const threshold = rule.threshold.satisfactionBelow ?? 3;
+            return c.satisfaction !== undefined && c.satisfaction < threshold;
+          }
+          default:
+            return false;
+        }
+      });
+
+      matchedComplaints.forEach((complaint) => {
+        const key = `${rule.id}-${complaint.id}`;
+        if (existingPending.has(key)) return;
+
+        let riskLevel: RiskLevel = 'low';
+        const daysLeft = dayjs(complaint.deadline).diff(dayjs(), 'day');
+        const urgeCount = complaint.urgeCount || 0;
+
+        if (rule.type === 'overdue' || urgeCount >= 3 || daysLeft < 0) {
+          riskLevel = 'high';
+        } else if ((rule.type === 'expiring' && daysLeft <= 1) || urgeCount >= 2) {
+          riskLevel = 'medium';
+        }
+
+        const alertId = `WA${Date.now()}-${Math.random().toString(36).substr(2, 6)}`;
+        newAlerts.push({
+          id: alertId,
+          ruleId: rule.id,
+          ruleName: rule.name,
+          ruleType: rule.type,
+          complaintId: complaint.id,
+          complaintTitle: complaint.title,
+          riskLevel,
+          status: 'pending',
+          triggeredAt: now,
+          detail: {},
+        });
+      });
+    });
+
+    if (newAlerts.length > 0) {
+      set((state) => ({
+        warningAlerts: [...newAlerts, ...state.warningAlerts],
+      }));
+    }
+  },
+
+  getWarningById: (id) => {
+    return get().warningAlerts.find((w) => w.id === id);
+  },
+
+  updateWarningStatus: (id, status, handler, remark) => {
+    const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
+    set((state) => ({
+      warningAlerts: state.warningAlerts.map((w) =>
+        w.id === id
+          ? {
+              ...w,
+              status,
+              handledAt: status === 'handled' || status === 'ignored' ? now : undefined,
+              handler: handler || w.handler,
+              remark: remark || w.remark,
+            }
+          : w
+      ),
+    }));
+  },
+
+  getWarningsByRule: (ruleId) => {
+    return get().warningAlerts.filter((w) => w.ruleId === ruleId);
+  },
+
+  getWarningsByComplaint: (complaintId) => {
+    return get().warningAlerts.filter((w) => w.complaintId === complaintId);
   },
 }));
