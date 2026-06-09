@@ -13,13 +13,6 @@ const Supervision: React.FC = () => {
   const [searchParams] = useSearchParams();
   const { complaints, updateComplaint, addTimeline, extensionRequests, approveExtension, rejectExtension } = useAppStore();
   const [activeTab, setActiveTab] = useState('pending');
-
-  useEffect(() => {
-    const tab = searchParams.get('tab');
-    if (tab && ['pending', 'review', 'delay', 'followup'].includes(tab)) {
-      setActiveTab(tab);
-    }
-  }, [searchParams]);
   const [returnModalVisible, setReturnModalVisible] = useState(false);
   const [urgeModalVisible, setUrgeModalVisible] = useState(false);
   const [reviewModalVisible, setReviewModalVisible] = useState(false);
@@ -33,6 +26,22 @@ const Supervision: React.FC = () => {
   const [reviewForm] = Form.useForm();
   const [followupForm] = Form.useForm();
   const [delayForm] = Form.useForm();
+
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (tab && ['pending', 'review', 'delay', 'followup'].includes(tab)) {
+      setActiveTab(tab);
+    }
+    const extensionId = searchParams.get('extensionId');
+    if (extensionId) {
+      const ext = extensionRequests.find((r) => r.id === extensionId);
+      if (ext && ext.status === 'pending') {
+        setSelectedExtension(ext);
+        setDelayAction('approve');
+        setDelayModalVisible(true);
+      }
+    }
+  }, [searchParams, extensionRequests]);
 
   const pendingList = complaints.filter(
     (c) => c.status === 'processing' || c.status === 'pending_assign'
