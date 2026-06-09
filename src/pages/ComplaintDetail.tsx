@@ -56,21 +56,21 @@ interface KnowledgeCardProps {
   entry: KnowledgeEntry;
   recommended?: boolean;
   onSelect: () => void;
+  onGenerateDraft: () => void;
   onView: () => void;
 }
 
-const KnowledgeCard: React.FC<KnowledgeCardProps> = ({ entry, recommended, onSelect, onView }) => {
+const KnowledgeCard: React.FC<KnowledgeCardProps> = ({ entry, recommended, onSelect, onGenerateDraft, onView }) => {
   return (
     <div
-      className={`border rounded-lg p-4 transition-colors group cursor-pointer ${
+      className={`border rounded-lg p-4 transition-colors group ${
         recommended
           ? 'border-orange-200 bg-orange-50/30 hover:border-orange-400 hover:bg-orange-50/50'
           : 'border-gray-200 hover:border-blue-400 hover:bg-blue-50/30'
       }`}
-      onClick={onSelect}
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 cursor-pointer" onClick={onSelect}>
           <div className="flex items-center gap-2 mb-1">
             <BookOpen size={16} className={recommended ? 'text-orange-500 flex-shrink-0' : 'text-blue-500 flex-shrink-0'} />
             <span className="font-medium text-gray-800 truncate">{entry.title}</span>
@@ -111,14 +111,25 @@ const KnowledgeCard: React.FC<KnowledgeCardProps> = ({ entry, recommended, onSel
             预览
           </Button>
           <Button
-            type="primary"
+            type="text"
             size="small"
             onClick={(e) => {
               e.stopPropagation();
               onSelect();
             }}
           >
-            选用
+            直接插入
+          </Button>
+          <Button
+            type="primary"
+            size="small"
+            icon={<Sparkles size={12} />}
+            onClick={(e) => {
+              e.stopPropagation();
+              onGenerateDraft();
+            }}
+          >
+            生成草稿
           </Button>
         </div>
       </div>
@@ -147,6 +158,7 @@ const ComplaintDetail: React.FC = () => {
   const [mergeModalVisible, setMergeModalVisible] = useState(false);
   const [mergeTargetId, setMergeTargetId] = useState<string>('');
   const [form] = Form.useForm();
+  const [draftInfo, setDraftInfo] = useState<{ entryId: string; entryTitle: string; generatedAt: string } | null>(null);
 
   const repeatGroup = complaint?.repeatGroupId
     ? getRepeatGroup(complaint.repeatGroupId)
@@ -319,6 +331,7 @@ const ComplaintDetail: React.FC = () => {
     updateComplaint(id!, { status: 'pending_review' });
     message.success('办理结果已提交');
     setProcessModalVisible(false);
+    setDraftInfo(null);
     form.resetFields();
   };
 
@@ -343,10 +356,46 @@ const ComplaintDetail: React.FC = () => {
   const handleSelectKnowledge = (entry: KnowledgeEntry) => {
     form.setFieldsValue({ content: entry.content });
     incrementKnowledgeUsage(entry.id);
+    setDraftInfo(null);
     setKnowledgeModalVisible(false);
     setKnowledgeDetailVisible(false);
     setKnowledgeSearch('');
     message.success('已插入知识库模板');
+  };
+
+  const handleGenerateDraft = (entry: KnowledgeEntry) => {
+    const today = dayjs().format('YYYY年MM月DD日');
+    const draftContent = `尊敬的市民：
+
+您好！
+
+您反映的关于「${complaint?.title}」的投诉事项已收悉。我单位高度重视，立即安排相关工作人员进行核实处理，现将办理情况答复如下：
+
+【投诉分类】${complaint?.categoryName}
+【所属区域】${complaint?.areaName}${complaint?.address ? `（${complaint.address}）` : ''}
+【责任单位】${complaint?.departmentName}
+
+${entry.content}
+
+感谢您对我们工作的监督与支持，如您对以上答复有异议或还有其他问题，欢迎继续反映。
+
+此复。
+
+${complaint?.departmentName}
+${today}`;
+
+    form.setFieldsValue({ content: draftContent });
+    incrementKnowledgeUsage(entry.id);
+    setDraftInfo({
+      entryId: entry.id,
+      entryTitle: entry.title,
+      generatedAt: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+    });
+    setKnowledgeModalVisible(false);
+    setKnowledgeDetailVisible(false);
+    setKnowledgeSearch('');
+    setProcessModalVisible(true);
+    message.success('已生成答复草稿，您可以继续编辑');
   };
 
   const handleViewKnowledge = (entry: KnowledgeEntry) => {
@@ -373,6 +422,166 @@ const ComplaintDetail: React.FC = () => {
 
   const isOverdue = dayjs().isAfter(dayjs(complaint.deadline)) && complaint.status !== 'completed';
 
+  const getRiskWarnings = () => {
+    const warnings: { key: string; label: string; type: 'error' | 'warning' | 'info'; icon: React.ReactNode; description?: string }[] = [];
+    const now = dayjs();
+    const deadline = dayjs(complaint.deadline);
+    const diffHours = deadline.diff(now, 'hour');
+    const diffDays = deadline.diff(now, 'day');
+    const totalDays = deadline.diff(dayjs(complaint.createdAt), 'day');
+    const elapsedDays = now.diff(dayjs(complaint.createdAt), 'day');
+    const progressPercent = totalDays > 0 ? Math.min(100, Math.round((elapsedDays / totalDays) * 100)) : 0;
+
+    if (isOverdue) {
+      const overdueDays = Math.abs(diffDays) + 1;
+      warnings.push({
+        key: 'overdue',
+        label: `已超期${overdueDays}天`,
+        type: 'error',
+        icon: <AlertTriangle size={14} />,
+        description: '投诉已超过办理时限，需立即处理',
+      });
+    } else if (diffHours <= 24 && complaint.status !== 'completed') {
+      warnings.push({
+        key: 'urgent',
+        label: `临期（剩余${diffHours}小时）`,
+        type: 'error',
+        icon: <Clock size={14} />,
+        description: '办理时限不足24小时，请优先处理',
+      });
+    } else if (diffDays <= 3 && complaint.status !== 'completed') {
+      warnings.push({
+        key: 'approaching',
+        label: `即将到期（剩余${diffDays}天）`,
+        type: 'warning',
+        icon: <Clock size={14} />,
+        description: '办理时限临近，请注意进度',
+      });
+    }
+
+    if (complaint.urgeCount && complaint.urgeCount >= 3) {
+      warnings.push({
+        key: 'urge_high',
+        label: `高频催办（${complaint.urgeCount}次）`,
+        type: 'error',
+        icon: <Bell size={14} />,
+        description: '投诉已被多次催办，群众关注度高',
+      });
+    } else if (complaint.urgeCount && complaint.urgeCount >= 2) {
+      warnings.push({
+        key: 'urge_mid',
+        label: `已催办${complaint.urgeCount}次`,
+        type: 'warning',
+        icon: <Bell size={14} />,
+        description: '投诉已被催办，请注意办理进度',
+      });
+    }
+
+    if (complaint.isRepeat && repeatGroup.length >= 5) {
+      warnings.push({
+        key: 'repeat_high',
+        label: `重复投诉集中（${repeatGroup.length}件）`,
+        type: 'error',
+        icon: <GitMerge size={14} />,
+        description: '该问题已被多次投诉，需重点关注解决',
+      });
+    } else if (complaint.isRepeat && repeatGroup.length >= 3) {
+      warnings.push({
+        key: 'repeat_mid',
+        label: `重复投诉（${repeatGroup.length}件）`,
+        type: 'warning',
+        icon: <GitMerge size={14} />,
+        description: '存在同类重复投诉，需关注处理效果',
+      });
+    }
+
+    if (similarComplaints.length >= 5) {
+      warnings.push({
+        key: 'similar_high',
+        label: `相似投诉较多（${similarComplaints.length}件）`,
+        type: 'warning',
+        icon: <AlertTriangle size={14} />,
+        description: '存在多起相似投诉，建议合并处理',
+      });
+    } else if (similarComplaints.length >= 3) {
+      warnings.push({
+        key: 'similar_mid',
+        label: `相似投诉（${similarComplaints.length}件）`,
+        type: 'info',
+        icon: <AlertTriangle size={14} />,
+        description: '存在相似投诉，可参考处理方案',
+      });
+    }
+
+    if (complaint.status === 'returned') {
+      warnings.push({
+        key: 'returned',
+        label: '被退回重办',
+        type: 'warning',
+        icon: <RotateCcw size={14} />,
+        description: '投诉曾被退回，需注意办理质量',
+      });
+    }
+
+    if (progressPercent >= 80 && complaint.status !== 'completed' && !isOverdue) {
+      warnings.push({
+        key: 'progress_slow',
+        label: `办理进度${progressPercent}%`,
+        type: 'warning',
+        icon: <Clock size={14} />,
+        description: '时间已过八成，请加快办理进度',
+      });
+    }
+
+    return warnings;
+  };
+
+  const riskWarnings = getRiskWarnings();
+
+  const getOverallRiskLevel = (): 'high' | 'medium' | 'low' => {
+    const errorCount = riskWarnings.filter(w => w.type === 'error').length;
+    const warningCount = riskWarnings.filter(w => w.type === 'warning').length;
+    if (errorCount >= 2 || (errorCount >= 1 && warningCount >= 2)) {
+      return 'high';
+    }
+    if (errorCount >= 1 || warningCount >= 2) {
+      return 'medium';
+    }
+    if (warningCount >= 1 || riskWarnings.length > 0) {
+      return 'low';
+    }
+    return 'low';
+  };
+
+  const overallRiskLevel = getOverallRiskLevel();
+
+  const getTagColor = (type: string) => {
+    switch (type) {
+      case 'error': return 'red';
+      case 'warning': return 'orange';
+      case 'info': return 'blue';
+      default: return 'default';
+    }
+  };
+
+  const getAlertType = (level: string) => {
+    switch (level) {
+      case 'high': return 'error';
+      case 'medium': return 'warning';
+      case 'low': return 'info';
+      default: return 'info';
+    }
+  };
+
+  const getRiskTitle = (level: string) => {
+    switch (level) {
+      case 'high': return '高风险工单，请谨慎操作';
+      case 'medium': return '中风险工单，请注意相关提示';
+      case 'low': return '低风险工单';
+      default: return '办理风险提示';
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -396,40 +605,77 @@ const ComplaintDetail: React.FC = () => {
             <Tag color="red">已超期</Tag>
           )}
         </div>
-        <Space>
-          <Button
-            icon={<GitMerge size={14} />}
-            onClick={() => setMergeModalVisible(true)}
-          >
-            合并投诉
-          </Button>
-          {complaint.status === 'processing' && (
-            <>
-              <Button icon={<Send size={14} />} onClick={() => setTransferModalVisible(true)}>
-                转办
-              </Button>
-              <Button icon={<RotateCcw size={14} />} onClick={() => setReturnModalVisible(true)}>
-                退回
-              </Button>
-              <Button icon={<Bell size={14} />} onClick={() => setUrgeModalVisible(true)}>
-                催办
-              </Button>
-              <Button type="primary" icon={<Clock size={14} />} onClick={() => setDelayModalVisible(true)}>
-                延期申请
-              </Button>
-            </>
+        <div className="flex flex-col items-end gap-3">
+          {riskWarnings.length > 0 && (
+            <Alert
+              type={getAlertType(overallRiskLevel) as any}
+              showIcon
+              icon={<AlertTriangle size={16} />}
+              message={
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-medium">{getRiskTitle(overallRiskLevel)}</span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {riskWarnings.map((warning) => (
+                      <Tag
+                        key={warning.key}
+                        color={getTagColor(warning.type)}
+                        icon={warning.icon}
+                        className="m-0 text-xs"
+                      >
+                        {warning.label}
+                      </Tag>
+                    ))}
+                  </div>
+                </div>
+              }
+              description={
+                <div className="text-xs mt-1 space-y-0.5">
+                  {riskWarnings.slice(0, 3).map((warning) => (
+                    <div key={warning.key} className="flex items-start gap-1.5">
+                      <span className="text-gray-500">•</span>
+                      <span>{warning.description}</span>
+                    </div>
+                  ))}
+                </div>
+              }
+              className="text-left"
+            />
           )}
-          {complaint.status === 'pending_review' && (
-            <Button type="primary" icon={<ThumbsUp size={14} />} onClick={() => setReviewModalVisible(true)}>
-              审核
+          <Space>
+            <Button
+              icon={<GitMerge size={14} />}
+              onClick={() => setMergeModalVisible(true)}
+            >
+              合并投诉
             </Button>
-          )}
-          {(complaint.status === 'processing' || complaint.status === 'returned') && (
-            <Button type="primary" icon={<MessageSquare size={14} />} onClick={() => setProcessModalVisible(true)}>
-              提交办理结果
-            </Button>
-          )}
-        </Space>
+            {complaint.status === 'processing' && (
+              <>
+                <Button icon={<Send size={14} />} onClick={() => setTransferModalVisible(true)}>
+                  转办
+                </Button>
+                <Button icon={<RotateCcw size={14} />} onClick={() => setReturnModalVisible(true)}>
+                  退回
+                </Button>
+                <Button icon={<Bell size={14} />} onClick={() => setUrgeModalVisible(true)}>
+                  催办
+                </Button>
+                <Button type="primary" icon={<Clock size={14} />} onClick={() => setDelayModalVisible(true)}>
+                  延期申请
+                </Button>
+              </>
+            )}
+            {complaint.status === 'pending_review' && (
+              <Button type="primary" icon={<ThumbsUp size={14} />} onClick={() => setReviewModalVisible(true)}>
+                审核
+              </Button>
+            )}
+            {(complaint.status === 'processing' || complaint.status === 'returned') && (
+              <Button type="primary" icon={<MessageSquare size={14} />} onClick={() => setProcessModalVisible(true)}>
+                提交办理结果
+              </Button>
+            )}
+          </Space>
+        </div>
       </div>
 
       <Row gutter={[16, 16]}>
@@ -553,6 +799,79 @@ const ComplaintDetail: React.FC = () => {
           <Card title={<span className="font-semibold">办理时间线</span>} className="shadow-sm mb-4">
             <ComplaintTimeline records={complaint.timelines} />
           </Card>
+
+          {(complaint.status === 'processing' || complaint.status === 'returned') && recommendedEntries.length > 0 && (
+            <Card
+              title={
+                <span className="font-semibold flex items-center gap-2">
+                  <Sparkles size={16} className="text-orange-500" />
+                  推荐知识
+                </span>
+              }
+              className="shadow-sm mb-4"
+              size="small"
+              extra={
+                <Button
+                  type="link"
+                  size="small"
+                  icon={<BookOpen size={12} />}
+                  onClick={() => {
+                    setKnowledgeModalVisible(true);
+                  }}
+                >
+                  更多
+                </Button>
+              }
+            >
+              <div className="space-y-2">
+                {recommendedEntries.slice(0, 3).map((entry) => (
+                  <div
+                    key={entry.id}
+                    className="border border-orange-100 rounded-lg p-3 bg-orange-50/30 hover:bg-orange-50/50 hover:border-orange-200 transition-colors"
+                  >
+                    <div className="flex items-start justify-between gap-2 mb-1">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 mb-1">
+                          <BookOpen size={13} className="text-orange-500 flex-shrink-0" />
+                          <span className="font-medium text-sm text-gray-800 truncate">
+                            {entry.title}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-gray-500 mb-1.5">
+                          <span>{entry.categoryName}</span>
+                          <span>·</span>
+                          <span className="text-orange-500">使用 {entry.usageCount} 次</span>
+                        </div>
+                        <p className="text-xs text-gray-500 line-clamp-2 leading-relaxed">
+                          {entry.content}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-end gap-1 mt-2 pt-2 border-t border-orange-100/60">
+                      <Button
+                        type="text"
+                        size="small"
+                        icon={<Eye size={12} />}
+                        onClick={() => handleViewKnowledge(entry)}
+                      >
+                        预览
+                      </Button>
+                      <Button
+                        type="primary"
+                        size="small"
+                        icon={<Sparkles size={11} />}
+                        onClick={() => {
+                          handleGenerateDraft(entry);
+                        }}
+                      >
+                        生成草稿
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
 
           {complaint.isRepeat && repeatGroup.length > 0 && (
             <Card
@@ -690,6 +1009,35 @@ const ComplaintDetail: React.FC = () => {
         footer={null}
         width={600}
       >
+        {riskWarnings.length > 0 && (
+          <Alert
+            type={getAlertType(overallRiskLevel) as any}
+            showIcon
+            icon={<AlertTriangle size={14} />}
+            message={
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-sm font-medium">办理风险提示</span>
+                {riskWarnings.slice(0, 3).map((warning) => (
+                  <Tag key={warning.key} color={getTagColor(warning.type)} icon={warning.icon} className="m-0 text-xs">
+                    {warning.label}
+                  </Tag>
+                ))}
+              </div>
+            }
+            description={
+              <div className="text-xs space-y-0.5 mt-1">
+                {riskWarnings.slice(0, 2).map((warning) => (
+                  <div key={warning.key} className="flex items-start gap-1.5">
+                    <span className="text-gray-500">•</span>
+                    <span>{warning.description}</span>
+                  </div>
+                ))}
+                <div className="text-gray-500 mt-1">转办前请评估上述风险，确保转办后能及时处理</div>
+              </div>
+            }
+            className="mb-4"
+          />
+        )}
         <Form form={form} layout="vertical" onFinish={handleTransfer}>
           <Form.Item
             label="转至单位"
@@ -787,6 +1135,35 @@ const ComplaintDetail: React.FC = () => {
         footer={null}
         width={520}
       >
+        {riskWarnings.length > 0 && (
+          <Alert
+            type={getAlertType(overallRiskLevel) as any}
+            showIcon
+            icon={<AlertTriangle size={14} />}
+            message={
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-sm font-medium">办理风险提示</span>
+                {riskWarnings.slice(0, 3).map((warning) => (
+                  <Tag key={warning.key} color={getTagColor(warning.type)} icon={warning.icon} className="m-0 text-xs">
+                    {warning.label}
+                  </Tag>
+                ))}
+              </div>
+            }
+            description={
+              <div className="text-xs space-y-0.5 mt-1">
+                {riskWarnings.slice(0, 2).map((warning) => (
+                  <div key={warning.key} className="flex items-start gap-1.5">
+                    <span className="text-gray-500">•</span>
+                    <span>{warning.description}</span>
+                  </div>
+                ))}
+                <div className="text-gray-500 mt-1">退回将延长办理周期，请评估后谨慎操作</div>
+              </div>
+            }
+            className="mb-4"
+          />
+        )}
         <Form form={form} layout="vertical" onFinish={handleReturn}>
           <Form.Item
             label="退回原因"
@@ -813,6 +1190,35 @@ const ComplaintDetail: React.FC = () => {
         footer={null}
         width={520}
       >
+        {riskWarnings.length > 0 && (
+          <Alert
+            type={getAlertType(overallRiskLevel) as any}
+            showIcon
+            icon={<AlertTriangle size={14} />}
+            message={
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-sm font-medium">办理风险提示</span>
+                {riskWarnings.slice(0, 3).map((warning) => (
+                  <Tag key={warning.key} color={getTagColor(warning.type)} icon={warning.icon} className="m-0 text-xs">
+                    {warning.label}
+                  </Tag>
+                ))}
+              </div>
+            }
+            description={
+              <div className="text-xs space-y-0.5 mt-1">
+                {riskWarnings.slice(0, 2).map((warning) => (
+                  <div key={warning.key} className="flex items-start gap-1.5">
+                    <span className="text-gray-500">•</span>
+                    <span>{warning.description}</span>
+                  </div>
+                ))}
+                <div className="text-gray-500 mt-1">延期将影响办理时效，请严格审核延期理由</div>
+              </div>
+            }
+            className="mb-4"
+          />
+        )}
         <Form form={form} layout="vertical" onFinish={handleDelay}>
           <Form.Item
             label="延长期限"
@@ -852,6 +1258,35 @@ const ComplaintDetail: React.FC = () => {
         footer={null}
         width={520}
       >
+        {riskWarnings.length > 0 && (
+          <Alert
+            type={getAlertType(overallRiskLevel) as any}
+            showIcon
+            icon={<AlertTriangle size={14} />}
+            message={
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-sm font-medium">办理风险提示</span>
+                {riskWarnings.slice(0, 3).map((warning) => (
+                  <Tag key={warning.key} color={getTagColor(warning.type)} icon={warning.icon} className="m-0 text-xs">
+                    {warning.label}
+                  </Tag>
+                ))}
+              </div>
+            }
+            description={
+              <div className="text-xs space-y-0.5 mt-1">
+                {riskWarnings.slice(0, 2).map((warning) => (
+                  <div key={warning.key} className="flex items-start gap-1.5">
+                    <span className="text-gray-500">•</span>
+                    <span>{warning.description}</span>
+                  </div>
+                ))}
+                <div className="text-gray-500 mt-1">催办将增加责任单位压力，请合理使用</div>
+              </div>
+            }
+            className="mb-4"
+          />
+        )}
         <Form form={form} layout="vertical" onFinish={handleUrge}>
           <Form.Item label="催办内容" name="content">
             <Input.TextArea rows={3} placeholder="请输入催办内容" defaultValue="请加快办理进度，确保按时办结" />
@@ -874,6 +1309,35 @@ const ComplaintDetail: React.FC = () => {
         footer={null}
         width={520}
       >
+        {riskWarnings.length > 0 && (
+          <Alert
+            type={getAlertType(overallRiskLevel) as any}
+            showIcon
+            icon={<AlertTriangle size={14} />}
+            message={
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-sm font-medium">办理风险提示</span>
+                {riskWarnings.slice(0, 3).map((warning) => (
+                  <Tag key={warning.key} color={getTagColor(warning.type)} icon={warning.icon} className="m-0 text-xs">
+                    {warning.label}
+                  </Tag>
+                ))}
+              </div>
+            }
+            description={
+              <div className="text-xs space-y-0.5 mt-1">
+                {riskWarnings.slice(0, 2).map((warning) => (
+                  <div key={warning.key} className="flex items-start gap-1.5">
+                    <span className="text-gray-500">•</span>
+                    <span>{warning.description}</span>
+                  </div>
+                ))}
+                <div className="text-gray-500 mt-1">审核前请综合评估上述风险因素</div>
+              </div>
+            }
+            className="mb-4"
+          />
+        )}
         <Form form={form} layout="vertical" onFinish={handleReview}>
           <Form.Item
             label="审核结果"
@@ -911,10 +1375,73 @@ const ComplaintDetail: React.FC = () => {
       <Modal
         title="提交办理结果"
         open={processModalVisible}
-        onCancel={() => setProcessModalVisible(false)}
+        onCancel={() => {
+          setProcessModalVisible(false);
+          setDraftInfo(null);
+        }}
         footer={null}
         width={600}
+        destroyOnClose
       >
+        {riskWarnings.length > 0 && (
+          <Alert
+            type={getAlertType(overallRiskLevel) as any}
+            showIcon
+            icon={<AlertTriangle size={14} />}
+            message={
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-sm font-medium">办理风险提示</span>
+                {riskWarnings.slice(0, 3).map((warning) => (
+                  <Tag key={warning.key} color={getTagColor(warning.type)} icon={warning.icon} className="m-0 text-xs">
+                    {warning.label}
+                  </Tag>
+                ))}
+              </div>
+            }
+            description={
+              <div className="text-xs space-y-0.5 mt-1">
+                {riskWarnings.slice(0, 2).map((warning) => (
+                  <div key={warning.key} className="flex items-start gap-1.5">
+                    <span className="text-gray-500">•</span>
+                    <span>{warning.description}</span>
+                  </div>
+                ))}
+                <div className="text-gray-500 mt-1">提交前请确保办理结果详实、措施到位</div>
+              </div>
+            }
+            className="mb-4"
+          />
+        )}
+        {draftInfo && (
+          <Alert
+            type="info"
+            showIcon
+            icon={<Sparkles size={14} />}
+            message={
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-medium">已生成答复草稿</span>
+                  <Tag color="blue" className="m-0 text-xs">
+                    来源：{draftInfo.entryTitle}
+                  </Tag>
+                  <span className="text-xs text-gray-400">
+                    生成时间：{draftInfo.generatedAt}
+                  </span>
+                </div>
+                <Button
+                  type="link"
+                  size="small"
+                  danger
+                  onClick={() => setDraftInfo(null)}
+                >
+                  清除草稿标记
+                </Button>
+              </div>
+            }
+            description="草稿已自动带入投诉分类、区域和责任单位信息，您可以继续编辑下方内容。"
+            className="mb-4"
+          />
+        )}
         <Form form={form} layout="vertical" onFinish={handleProcess}>
           <div className="flex items-center justify-between mb-1">
             <label className="text-sm font-medium text-gray-700">办理结果</label>
@@ -924,14 +1451,22 @@ const ComplaintDetail: React.FC = () => {
               icon={<BookOpen size={14} />}
               onClick={() => setKnowledgeModalVisible(true)}
             >
-              从知识库选择模板
+              从知识库选择
             </Button>
           </div>
           <Form.Item
             name="content"
             rules={[{ required: true, message: '请输入办理结果' }]}
           >
-            <Input.TextArea rows={6} placeholder="请详细描述办理过程和结果，或点击上方从知识库选择模板" />
+            <Input.TextArea
+              rows={8}
+              placeholder="请详细描述办理过程和结果，或点击上方从知识库生成答复草稿"
+              onChange={() => {
+                if (draftInfo) {
+                  setDraftInfo({ ...draftInfo });
+                }
+              }}
+            />
           </Form.Item>
           <Form.Item label="附件上传" name="files">
             <div className="border-2 border-dashed border-gray-200 rounded-lg p-8 text-center text-gray-400 hover:border-blue-300 transition-colors cursor-pointer">
@@ -945,7 +1480,10 @@ const ComplaintDetail: React.FC = () => {
               <Button type="primary" htmlType="submit">
                 提交办理结果
               </Button>
-              <Button onClick={() => setProcessModalVisible(false)}>取消</Button>
+              <Button onClick={() => {
+                setProcessModalVisible(false);
+                setDraftInfo(null);
+              }}>取消</Button>
             </Space>
           </Form.Item>
         </Form>
@@ -987,6 +1525,7 @@ const ComplaintDetail: React.FC = () => {
                         key={entry.id}
                         entry={entry}
                         onSelect={() => handleSelectKnowledge(entry)}
+                        onGenerateDraft={() => handleGenerateDraft(entry)}
                         onView={() => handleViewKnowledge(entry)}
                       />
                     ))}
@@ -1013,6 +1552,7 @@ const ComplaintDetail: React.FC = () => {
                           entry={entry}
                           recommended
                           onSelect={() => handleSelectKnowledge(entry)}
+                          onGenerateDraft={() => handleGenerateDraft(entry)}
                           onView={() => handleViewKnowledge(entry)}
                         />
                       ))}
@@ -1030,6 +1570,7 @@ const ComplaintDetail: React.FC = () => {
                         key={entry.id}
                         entry={entry}
                         onSelect={() => handleSelectKnowledge(entry)}
+                        onGenerateDraft={() => handleGenerateDraft(entry)}
                         onView={() => handleViewKnowledge(entry)}
                       />
                     ))}
@@ -1094,10 +1635,16 @@ const ComplaintDetail: React.FC = () => {
             <div className="flex justify-end gap-2 pt-1">
               <Button onClick={() => setKnowledgeDetailVisible(false)}>关闭</Button>
               <Button
-                type="primary"
                 onClick={() => handleSelectKnowledge(knowledgeDetailEntry)}
               >
-                使用此模板
+                直接插入
+              </Button>
+              <Button
+                type="primary"
+                icon={<Sparkles size={14} />}
+                onClick={() => handleGenerateDraft(knowledgeDetailEntry)}
+              >
+                生成答复草稿
               </Button>
             </div>
           </div>
