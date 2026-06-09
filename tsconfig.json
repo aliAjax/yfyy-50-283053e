@@ -16,12 +16,13 @@
     "moduleDetection": "force",
     "noEmit": true,
     "jsx": "react-jsx",
-    "strict": false,
+    "strict": true,
     "noUnusedLocals": false,
     "noUnusedParameters": false,
-    "noFallthroughCasesInSwitch": false,
+    "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": false,
-    "forceConsistentCasingInFileNames": false,
+    "forceConsistentCasingInFileNames": true,
+    "noImplicitOverride": true,
     "baseUrl": "./",
     "paths": {
       "@/*": [

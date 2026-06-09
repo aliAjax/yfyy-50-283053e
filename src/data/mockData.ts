@@ -194,7 +194,7 @@ const generateComplaint = (index: number): Complaint => {
     satisfaction = Random.integer(3, 5);
   }
 
-  const assignSource: 'auto' | 'manual' = Random.boolean(0.85) ? 'auto' : 'manual';
+  const assignSource: 'auto' | 'manual' = Math.random() < 0.85 ? 'auto' : 'manual';
   const dispatchRuleId = assignSource === 'auto' ? `DR${String(Random.integer(1, 24)).padStart(4, '0')}` : undefined;
   const dispatchRuleName = dispatchRuleId ? `${area.name}${category.name}派单规则` : undefined;
 
@@ -225,7 +225,7 @@ const generateComplaint = (index: number): Complaint => {
     contactPhone: /^1[3-9]\d{9}$/.exec(Random.string('number', 11))?.[0] || '13800138000',
     address: area.name + Random.csentence(5, 10),
     satisfaction,
-    isRepeat: Random.boolean(0.15),
+    isRepeat: Math.random() < 0.15,
     urgeCount: Random.integer(0, 3),
     timelines,
     assignSource,
@@ -602,7 +602,7 @@ export const generateKnowledgeEntries = (): KnowledgeEntry[] => {
       departmentId: department.id,
       departmentName: department.name,
       keywords: template.keywords,
-      status: Random.boolean(0.85) ? 'active' : 'disabled',
+      status: Math.random() < 0.85 ? 'active' : 'disabled',
       createdAt,
       updatedAt,
       creator: Random.pick(['管理员', '李督办', '王主管', '张工']),
@@ -662,7 +662,7 @@ export const generateDispatchRules = (): DispatchRule[] => {
       departmentId: template.dept || '',
       departmentName: department?.name || '',
       priority: template.priority,
-      enabled: Random.boolean(0.9),
+      enabled: Math.random() < 0.9,
       description: `根据${area?.name || ''}区域和${parentCategory?.name || ''}-${category?.name || ''}分类自动派单至${department?.name || ''}`,
       createdAt,
       updatedAt,
