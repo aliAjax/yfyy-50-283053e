@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import {
   Card,
   Row,
@@ -10,7 +9,6 @@ import {
   Form,
   Input,
   Select,
-  message,
   Tag,
   Divider,
   Empty,
@@ -43,14 +41,13 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
-import dayjs from 'dayjs';
-import { useAppStore } from '@/store/appStore';
-import type { ExtensionRequest, KnowledgeEntry, Department, Complaint } from '@/types';
+import type { DuplicateComplaintResult, KnowledgeEntry } from '@/types';
 import { StatusTag, SourceTag, SatisfactionTag } from '@/components/StatusTags';
 import ComplaintTimeline from '@/components/ComplaintTimeline';
 import { departments, statusMap, statusColorMap } from '@/data/dictionaries';
-import { getSimilarityColor, getSimilarityLabel, getSimilarityLevel } from '@/lib/utils';
-import type { DuplicateComplaintResult } from '@/types';
+import { getSimilarityColor, getSimilarityLevel } from '@/lib/utils';
+import { getDepartmentTypeTagColor } from '@/lib/complaintActionHelpers';
+import { useComplaintActions } from '@/hooks/useComplaintActions';
 
 interface KnowledgeCardProps {
   entry: KnowledgeEntry;
@@ -129,41 +126,59 @@ const KnowledgeCard: React.FC<KnowledgeCardProps> = ({ entry, recommended, onSel
 const ComplaintDetail: React.FC = () => {
   const navigate = useNavigate();
   const { id } = useParams<{ id: string }>();
-  const { getComplaintById, updateComplaint, addTimeline, addExtensionRequest, knowledgeEntries, incrementKnowledgeUsage, getRepeatGroup, mergeComplaint, detectDuplicates } = useAppStore();
-  const complaint = getComplaintById(id || '');
-
-  const [transferModalVisible, setTransferModalVisible] = useState(false);
-  const [returnModalVisible, setReturnModalVisible] = useState(false);
-  const [delayModalVisible, setDelayModalVisible] = useState(false);
-  const [urgeModalVisible, setUrgeModalVisible] = useState(false);
-  const [reviewModalVisible, setReviewModalVisible] = useState(false);
-  const [processModalVisible, setProcessModalVisible] = useState(false);
-  const [knowledgeModalVisible, setKnowledgeModalVisible] = useState(false);
-  const [knowledgeDetailVisible, setKnowledgeDetailVisible] = useState(false);
-  const [knowledgeDetailEntry, setKnowledgeDetailEntry] = useState<KnowledgeEntry | null>(null);
-  const [knowledgeSearch, setKnowledgeSearch] = useState('');
-  const [selectedTransferDept, setSelectedTransferDept] = useState<Department | null>(null);
-  const [repeatGroupVisible, setRepeatGroupVisible] = useState(false);
-  const [mergeModalVisible, setMergeModalVisible] = useState(false);
-  const [mergeTargetId, setMergeTargetId] = useState<string>('');
-  const [form] = Form.useForm();
-
-  const repeatGroup = complaint?.repeatGroupId
-    ? getRepeatGroup(complaint.repeatGroupId)
-    : [];
-
-  const similarComplaints = complaint
-    ? detectDuplicates(
-        {
-          title: complaint.title,
-          categoryId: complaint.categoryId,
-          areaId: complaint.areaId,
-          address: complaint.address,
-          contactPhone: complaint.contactPhone,
-        },
-        complaint.id
-      ).slice(0, 5)
-    : [];
+  const {
+    complaint,
+    form,
+    transferModalVisible,
+    setTransferModalVisible,
+    returnModalVisible,
+    setReturnModalVisible,
+    delayModalVisible,
+    setDelayModalVisible,
+    urgeModalVisible,
+    setUrgeModalVisible,
+    reviewModalVisible,
+    setReviewModalVisible,
+    processModalVisible,
+    setProcessModalVisible,
+    knowledgeModalVisible,
+    setKnowledgeModalVisible,
+    knowledgeDetailVisible,
+    setKnowledgeDetailVisible,
+    knowledgeDetailEntry,
+    knowledgeSearch,
+    setKnowledgeSearch,
+    selectedTransferDept,
+    setSelectedTransferDept,
+    repeatGroupVisible,
+    setRepeatGroupVisible,
+    mergeModalVisible,
+    setMergeModalVisible,
+    mergeTargetId,
+    setMergeTargetId,
+    repeatGroup,
+    similarComplaints,
+    activeKnowledgeEntries,
+    filteredKnowledgeEntries,
+    recommendedEntries,
+    isOverdue,
+    canTransfer,
+    canReturn,
+    canUrge,
+    canDelay,
+    canReview,
+    canSubmitProcess,
+    handleTransfer,
+    handleDeptChange,
+    handleReturn,
+    handleDelay,
+    handleUrge,
+    handleReview,
+    handleProcess,
+    handleSelectKnowledge,
+    handleViewKnowledge,
+    handleMergeToComplaint,
+  } = useComplaintActions(id);
 
   if (!complaint) {
     return (
@@ -175,203 +190,6 @@ const ComplaintDetail: React.FC = () => {
       </div>
     );
   }
-
-  const handleTransfer = (values: { departmentId: string; reason: string }) => {
-    const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
-    const newDept = departments.find((d) => d.id === values.departmentId);
-    addTimeline(id!, {
-      id: `${id}-transfer-${Date.now()}`,
-      complaintId: id!,
-      type: 'transfer',
-      operator: '督办员',
-      content: `转办至 ${newDept?.name || '新责任单位'}，原因：${values.reason}`,
-      createdAt: now,
-    });
-    updateComplaint(id!, {
-      departmentId: values.departmentId,
-      departmentName: newDept?.name || '',
-    });
-    message.success('转办成功');
-    setTransferModalVisible(false);
-    setSelectedTransferDept(null);
-    form.resetFields();
-  };
-
-  const handleDeptChange = (deptId: string) => {
-    const dept = departments.find((d) => d.id === deptId);
-    setSelectedTransferDept(dept || null);
-  };
-
-  const getTypeTagColor = (type: string) => {
-    switch (type) {
-      case '综合部门':
-        return 'blue';
-      case '专业部门':
-        return 'green';
-      case '执法部门':
-        return 'red';
-      default:
-        return 'default';
-    }
-  };
-
-  const handleReturn = (values: { reason: string }) => {
-    const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
-    addTimeline(id!, {
-      id: `${id}-return-${Date.now()}`,
-      complaintId: id!,
-      type: 'return',
-      operator: '督办员',
-      content: `退回重办，原因：${values.reason}`,
-      createdAt: now,
-    });
-    updateComplaint(id!, { status: 'returned' });
-    message.success('已退回重办');
-    setReturnModalVisible(false);
-    form.resetFields();
-  };
-
-  const handleDelay = (values: { days: number; reason: string }) => {
-    const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
-    const requestId = `EXT-${id}-${Date.now()}`;
-    addTimeline(id!, {
-      id: `${id}-delay-${Date.now()}`,
-      complaintId: id!,
-      type: 'delay',
-      operator: '责任单位',
-      content: `申请延期 ${values.days} 天，原因：${values.reason}`,
-      createdAt: now,
-    });
-    const request: ExtensionRequest = {
-      id: requestId,
-      complaintId: id!,
-      complaintTitle: complaint.title,
-      departmentName: complaint.departmentName,
-      days: values.days,
-      reason: values.reason,
-      status: 'pending',
-      createdAt: now,
-    };
-    addExtensionRequest(request);
-    message.success('延期申请已提交，等待审批');
-    setDelayModalVisible(false);
-    form.resetFields();
-  };
-
-  const handleUrge = (values: { content?: string }) => {
-    const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
-    addTimeline(id!, {
-      id: `${id}-urge-${Date.now()}`,
-      complaintId: id!,
-      type: 'urge',
-      operator: '督办员',
-      content: `督办催办：${values.content || '请加快办理进度'}`,
-      createdAt: now,
-    });
-    updateComplaint(id!, { urgeCount: (complaint.urgeCount || 0) + 1 });
-    message.success('催办通知已发送');
-    setUrgeModalVisible(false);
-    form.resetFields();
-  };
-
-  const handleReview = (values: { pass: boolean; remark?: string; satisfaction?: number }) => {
-    const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
-    if (values.pass) {
-      addTimeline(id!, {
-        id: `${id}-review-${Date.now()}`,
-        complaintId: id!,
-        type: 'review',
-        operator: '督办员',
-        content: `审核通过，评价：${values.remark || '办理合格'}`,
-        createdAt: now,
-      });
-      addTimeline(id!, {
-        id: `${id}-complete-${Date.now()}`,
-        complaintId: id!,
-        type: 'complete',
-        operator: '系统',
-        content: '投诉已办结归档',
-        createdAt: dayjs().add(1, 'minute').format('YYYY-MM-DD HH:mm:ss'),
-      });
-      updateComplaint(id!, {
-        status: 'completed',
-        finishedAt: dayjs().format('YYYY-MM-DD HH:mm:ss'),
-        satisfaction: values.satisfaction || 5,
-      });
-      message.success('审核通过，投诉已办结');
-    } else {
-      handleReturn({ reason: values.remark || '办理不合格' });
-    }
-    setReviewModalVisible(false);
-    form.resetFields();
-  };
-
-  const handleProcess = (values: { content: string }) => {
-    const now = dayjs().format('YYYY-MM-DD HH:mm:ss');
-    addTimeline(id!, {
-      id: `${id}-process-${Date.now()}`,
-      complaintId: id!,
-      type: 'reply',
-      operator: '责任单位',
-      content: values.content,
-      createdAt: now,
-    });
-    updateComplaint(id!, { status: 'pending_review' });
-    message.success('办理结果已提交');
-    setProcessModalVisible(false);
-    form.resetFields();
-  };
-
-  const activeKnowledgeEntries = knowledgeEntries.filter((k) => k.status === 'active');
-
-  const filteredKnowledgeEntries = activeKnowledgeEntries.filter((k) => {
-    if (knowledgeSearch) {
-      const keyword = knowledgeSearch.toLowerCase();
-      const matchTitle = k.title.toLowerCase().includes(keyword);
-      const matchContent = k.content.toLowerCase().includes(keyword);
-      const matchKeywords = k.keywords.some(kw => kw.toLowerCase().includes(keyword));
-      const matchCategory = k.categoryName.toLowerCase().includes(keyword);
-      if (!matchTitle && !matchContent && !matchKeywords && !matchCategory) return false;
-    }
-    return true;
-  });
-
-  const recommendedEntries = activeKnowledgeEntries.filter((k) => {
-    return k.categoryId === complaint?.categoryId || k.categoryId.startsWith(complaint?.categoryId?.split('-')[0] || '');
-  }).sort((a, b) => b.usageCount - a.usageCount);
-
-  const handleSelectKnowledge = (entry: KnowledgeEntry) => {
-    form.setFieldsValue({ content: entry.content });
-    incrementKnowledgeUsage(entry.id);
-    setKnowledgeModalVisible(false);
-    setKnowledgeDetailVisible(false);
-    setKnowledgeSearch('');
-    message.success('已插入知识库模板');
-  };
-
-  const handleViewKnowledge = (entry: KnowledgeEntry) => {
-    setKnowledgeDetailEntry(entry);
-    setKnowledgeDetailVisible(true);
-  };
-
-  const handleMergeToComplaint = (targetId: string) => {
-    Modal.confirm({
-      title: '确认合并投诉',
-      content: `确定要将当前投诉合并到投诉 ${targetId} 吗？合并后两条投诉将关联为重复投诉。`,
-      okText: '确认合并',
-      okType: 'danger',
-      cancelText: '取消',
-      onOk: () => {
-        if (complaint) {
-          mergeComplaint(complaint.id, targetId, '督办员');
-          message.success('投诉合并成功');
-          setMergeModalVisible(false);
-        }
-      },
-    });
-  };
-
-  const isOverdue = dayjs().isAfter(dayjs(complaint.deadline)) && complaint.status !== 'completed';
 
   return (
     <div className="space-y-4">
@@ -403,28 +221,36 @@ const ComplaintDetail: React.FC = () => {
           >
             合并投诉
           </Button>
-          {complaint.status === 'processing' && (
+          {(canTransfer || canReturn || canUrge || canDelay) && (
             <>
-              <Button icon={<Send size={14} />} onClick={() => setTransferModalVisible(true)}>
-                转办
-              </Button>
-              <Button icon={<RotateCcw size={14} />} onClick={() => setReturnModalVisible(true)}>
-                退回
-              </Button>
-              <Button icon={<Bell size={14} />} onClick={() => setUrgeModalVisible(true)}>
-                催办
-              </Button>
-              <Button type="primary" icon={<Clock size={14} />} onClick={() => setDelayModalVisible(true)}>
-                延期申请
-              </Button>
+              {canTransfer && (
+                <Button icon={<Send size={14} />} onClick={() => setTransferModalVisible(true)}>
+                  转办
+                </Button>
+              )}
+              {canReturn && (
+                <Button icon={<RotateCcw size={14} />} onClick={() => setReturnModalVisible(true)}>
+                  退回
+                </Button>
+              )}
+              {canUrge && (
+                <Button icon={<Bell size={14} />} onClick={() => setUrgeModalVisible(true)}>
+                  催办
+                </Button>
+              )}
+              {canDelay && (
+                <Button type="primary" icon={<Clock size={14} />} onClick={() => setDelayModalVisible(true)}>
+                  延期申请
+                </Button>
+              )}
             </>
           )}
-          {complaint.status === 'pending_review' && (
+          {canReview && (
             <Button type="primary" icon={<ThumbsUp size={14} />} onClick={() => setReviewModalVisible(true)}>
               审核
             </Button>
           )}
-          {(complaint.status === 'processing' || complaint.status === 'returned') && (
+          {canSubmitProcess && (
             <Button type="primary" icon={<MessageSquare size={14} />} onClick={() => setProcessModalVisible(true)}>
               提交办理结果
             </Button>
@@ -616,7 +442,6 @@ const ComplaintDetail: React.FC = () => {
                 renderItem={(item: DuplicateComplaintResult) => {
                   const level = getSimilarityLevel(item.similarity);
                   const color = getSimilarityColor(item.similarity);
-                  const label = getSimilarityLabel(item.similarity);
                   return (
                     <List.Item
                       key={item.complaint.id}
@@ -720,7 +545,7 @@ const ComplaintDetail: React.FC = () => {
                   <div className="font-medium text-gray-800">
                     {selectedTransferDept.name}
                   </div>
-                  <Tag color={getTypeTagColor(selectedTransferDept.type)} className="m-0 mt-1">
+                  <Tag color={getDepartmentTypeTagColor(selectedTransferDept.type)} className="m-0 mt-1">
                     {selectedTransferDept.type}
                   </Tag>
                 </div>
